@@ -1,0 +1,15 @@
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\AIChatAssistant.GeneratedMSBuildEditorConfig.editorconfig
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\AIChatAssistant.AssemblyInfoInputs.cache
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\AIChatAssistant.AssemblyInfo.cs
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\AIChatAssistant.csproj.CoreCompileInputs.cache
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\AIChatAssistant.sourcelink.json
+D:\shuyin\Documents\shuyin_AI_UI_memmi\bin\Debug\net8.0-windows\AIChatAssistant.exe
+D:\shuyin\Documents\shuyin_AI_UI_memmi\bin\Debug\net8.0-windows\AIChatAssistant.deps.json
+D:\shuyin\Documents\shuyin_AI_UI_memmi\bin\Debug\net8.0-windows\AIChatAssistant.runtimeconfig.json
+D:\shuyin\Documents\shuyin_AI_UI_memmi\bin\Debug\net8.0-windows\AIChatAssistant.dll
+D:\shuyin\Documents\shuyin_AI_UI_memmi\bin\Debug\net8.0-windows\AIChatAssistant.pdb
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\AIChatAssistant.dll
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\refint\AIChatAssistant.dll
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\AIChatAssistant.pdb
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\AIChatAssistant.genruntimeconfig.cache
+D:\shuyin\Documents\shuyin_AI_UI_memmi\obj\Debug\net8.0-windows\ref\AIChatAssistant.dll

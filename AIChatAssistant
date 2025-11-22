@@ -1,0 +1,15 @@
+AIChatAssistant/
+├── AIChatAssistant.csproj
+├── Program.cs
+├── Models/
+│   ├── ChatMessage.cs
+│   └── ApiConfig.cs
+├── Services/
+│   ├── IAiService.cs
+│   ├── OpenAiService.cs
+│   └── CloudApiService.cs
+├── UI/
+│   ├── ConsoleUI.cs
+│   └── WinFormUI.cs
+└── Config/
+    └── AppConfig.cs

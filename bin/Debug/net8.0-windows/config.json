@@ -1,0 +1,7 @@
+{
+  "ApiKey": "sk-1130c6936f582dbbd329a3d716d50b7e",
+  "BaseUrl": "https://apis.iflow.cn/v1/chat/completions",
+  "Model": "deepseek-v3.1",
+  "MaxTokens": 1000,
+  "Temperature": 0.7
+}
