@@ -1,6 +1,7 @@
 // UI/WinFormUI.cs
 using AIChatAssistant.Config;
 using AIChatAssistant.Models;
+using AIChatAssistant.Plugins;
 using AIChatAssistant.Services;
 using System.Drawing;
 using System.Windows.Forms;
@@ -12,6 +13,7 @@ public partial class WinFormUI : Form
 {
     private readonly IAiService _aiService;
     private readonly IConversationService _conversationService;
+    private readonly IPluginManager _pluginManager;
     private RichTextBox? _chatBox;
     private TextBox? _inputBox;
     private Button? _sendButton;
@@ -19,12 +21,14 @@ public partial class WinFormUI : Form
     private Button? _configButton;
     private Button? _newConversationButton;
     private Button? _listConversationsButton;
+    private Button? _pluginsButton;
     private ComboBox? _conversationComboBox;
 
-    public WinFormUI(IAiService aiService, IConversationService conversationService)
+    public WinFormUI(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager)
     {
         _aiService = aiService;
         _conversationService = conversationService;
+        _pluginManager = pluginManager;
         
         // 初始化时创建一个新会话
         _conversationService.CreateConversation();
@@ -132,10 +136,22 @@ public partial class WinFormUI : Form
             Font = new Font("Microsoft YaHei", 10),
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
+        
+        // 插件管理按钮
+        _pluginsButton = new Button
+        {
+            Location = new Point(460, 520),
+            Size = new Size(150, 35),
+            Text = "插件管理",
+            BackColor = Color.Purple,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 10),
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+        };
 
         Controls.AddRange(new Control[] { 
             _conversationComboBox, _chatBox, _inputBox, _sendButton, _clearButton, 
-            _newConversationButton, _listConversationsButton, _configButton 
+            _newConversationButton, _listConversationsButton, _configButton, _pluginsButton 
         });
     }
 
@@ -166,6 +182,8 @@ public partial class WinFormUI : Form
             _listConversationsButton.Click += (s, e) => ShowConversationManager();
         if (_conversationComboBox != null)
             _conversationComboBox.SelectedIndexChanged += (s, e) => OnConversationSelected();
+        if (_pluginsButton != null)
+            _pluginsButton.Click += (s, e) => ShowPluginsManager();
 
         // 添加欢迎消息
         AddMessageToChat("系统", "欢迎使用AI对话助手！", Color.Blue);
@@ -387,6 +405,107 @@ public partial class WinFormUI : Form
             UpdateConversationComboBox();
             LoadConversationHistory();
         }
+    }
+    
+    // 显示插件管理器
+    private void ShowPluginsManager()
+    {
+        // 显示插件管理窗口的逻辑
+        Form pluginsManager = new Form
+        {
+            Text = "插件管理",
+            Size = new Size(500, 400),
+            StartPosition = FormStartPosition.CenterParent
+        };
+        
+        // 创建一个ListView来显示所有插件
+        ListView pluginsListView = new ListView
+        {
+            Dock = DockStyle.Fill,
+            View = View.Details,
+            FullRowSelect = true,
+            GridLines = true
+        };
+        
+        // 添加列
+        pluginsListView.Columns.Add("插件名称", 150);
+        pluginsListView.Columns.Add("版本", 60);
+        pluginsListView.Columns.Add("描述", 200);
+        pluginsListView.Columns.Add("状态", 60);
+        
+        // 填充插件列表
+        foreach (var plugin in _pluginManager.LoadedPlugins)
+        {
+            ListViewItem item = new ListViewItem(plugin.Info.Name);
+            item.SubItems.Add(plugin.Info.Version);
+            item.SubItems.Add(plugin.Info.Description);
+            item.SubItems.Add(plugin.IsEnabled ? "已启用" : "已禁用");
+            item.Tag = plugin;
+            pluginsListView.Items.Add(item);
+        }
+        
+        // 添加启用/禁用按钮
+        FlowLayoutPanel buttonPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(5)
+        };
+        
+        Button enableButton = new Button
+        {
+            Text = "启用",
+            Width = 80,
+            Margin = new Padding(5, 5, 5, 5)
+        };
+        
+        Button disableButton = new Button
+        {
+            Text = "禁用",
+            Width = 80,
+            Margin = new Padding(5, 5, 5, 5)
+        };
+        
+        // 启用按钮点击事件
+        enableButton.Click += (s, e) =>
+        {
+            if (pluginsListView.SelectedItems.Count > 0)
+            {
+                var plugin = pluginsListView.SelectedItems[0].Tag as IPlugin;
+                if (plugin != null)
+                {
+                    _pluginManager.EnablePlugin(plugin.Info.Name);
+                    pluginsListView.SelectedItems[0].SubItems[3].Text = "已启用";
+                    MessageBox.Show($"插件 '{plugin.Info.Name}' 已启用", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+        };
+        
+        // 禁用按钮点击事件
+        disableButton.Click += (s, e) =>
+        {
+            if (pluginsListView.SelectedItems.Count > 0)
+            {
+                var plugin = pluginsListView.SelectedItems[0].Tag as IPlugin;
+                if (plugin != null)
+                {
+                    _pluginManager.DisablePlugin(plugin.Info.Name);
+                    pluginsListView.SelectedItems[0].SubItems[3].Text = "已禁用";
+                    MessageBox.Show($"插件 '{plugin.Info.Name}' 已禁用", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+        };
+        
+        // 添加按钮到面板
+        buttonPanel.Controls.Add(enableButton);
+        buttonPanel.Controls.Add(disableButton);
+        
+        // 添加控件到窗口
+        pluginsManager.Controls.Add(pluginsListView);
+        pluginsManager.Controls.Add(buttonPanel);
+        
+        // 显示窗口
+        pluginsManager.ShowDialog();
     }
     
     // 对话项，用于下拉框显示

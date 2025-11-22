@@ -1,6 +1,7 @@
 // UI/ConsoleUI.cs
 using AIChatAssistant.Config;
 using AIChatAssistant.Models;
+using AIChatAssistant.Plugins;
 using AIChatAssistant.Services;
 
 namespace AIChatAssistant.UI;
@@ -9,11 +10,13 @@ public class ConsoleUI
 {
     private readonly IAiService _aiService;
     private readonly IConversationService _conversationService;
+    private readonly IPluginManager _pluginManager;
 
-    public ConsoleUI(IAiService aiService, IConversationService conversationService)
+    public ConsoleUI(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager)
     {
         _aiService = aiService;
         _conversationService = conversationService;
+        _pluginManager = pluginManager;
         
         // 初始化时创建一个新会话
         _conversationService.CreateConversation();
@@ -22,8 +25,9 @@ public class ConsoleUI
     public async Task RunAsync()
     {
         Console.WriteLine("=== AI对话助手 - 命令行模式 ===");
-        Console.WriteLine("输入 'quit' 退出，'clear' 清空对话历史，'config' 配置API");
-        Console.WriteLine("'new' 创建新对话，'list' 查看对话列表，'select id' 切换对话，'delete id' 删除对话");
+            Console.WriteLine("输入 'quit' 退出，'clear' 清空对话历史，'config' 配置API");
+            Console.WriteLine("'new' 创建新对话，'list' 查看对话列表，'select id' 切换对话，'delete id' 删除对话");
+            Console.WriteLine("'plugins' 显示已加载插件，'plugin [name] [enable/disable]' 启用/禁用插件");
 
         while (true)
         {
@@ -48,6 +52,18 @@ public class ConsoleUI
                 {
                     Console.WriteLine("没有活动对话");
                 }
+                continue;
+            }
+            
+            if (input.ToLower() == "plugins")
+            {
+                ShowLoadedPlugins();
+                continue;
+            }
+            
+            if (input.ToLower().StartsWith("plugin "))
+            {
+                HandlePluginCommand(input.ToLower());
                 continue;
             }
 
@@ -184,6 +200,47 @@ public class ConsoleUI
             Console.WriteLine($"  最后修改: {conversation.LastModifiedAt}");
             Console.WriteLine($"  消息数: {conversation.Messages.Count}");
             Console.WriteLine("---------------------------");
+        }
+    }
+    
+    private void ShowLoadedPlugins()
+    {
+        Console.WriteLine("已加载的插件：");
+        Console.WriteLine("{0,-30} {1,-10} {2}", "插件名称", "状态", "描述");
+        Console.WriteLine(new string('-', 60));
+        
+        foreach (var plugin in _pluginManager.LoadedPlugins)
+        {
+            string status = plugin.IsEnabled ? "已启用" : "已禁用";
+            Console.WriteLine("{0,-30} {1,-10} {2}", plugin.Info.Name, status, plugin.Info.Description);
+        }
+    }
+
+    private void HandlePluginCommand(string command)
+    {
+        var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3)
+        {
+            Console.WriteLine("用法: plugin [插件名称] [enable/disable]");
+            return;
+        }
+        
+        string pluginName = parts[1];
+        string action = parts[2];
+        
+        if (action == "enable")
+        {
+            bool success = _pluginManager.EnablePlugin(pluginName);
+            Console.WriteLine(success ? $"插件 '{pluginName}' 已启用" : $"找不到插件 '{pluginName}'");
+        }
+        else if (action == "disable")
+        {
+            bool success = _pluginManager.DisablePlugin(pluginName);
+            Console.WriteLine(success ? $"插件 '{pluginName}' 已禁用" : $"找不到插件 '{pluginName}'");
+        }
+        else
+        {
+            Console.WriteLine("操作无效，请使用 'enable' 或 'disable'");
         }
     }
 }

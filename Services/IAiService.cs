@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using AIChatAssistant.Models;
+using AIChatAssistant.Plugins;
 
 namespace AIChatAssistant.Services;
 
@@ -10,6 +11,7 @@ public interface IAiService
 {
     Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory, string? conversationId = null);
     void UpdateConfig(ApiConfig config);
+    void SetPluginManager(IPluginManager pluginManager);
 }
 
 // Services/OpenAiService.cs
@@ -17,6 +19,7 @@ public class OpenAiService : IAiService
 {
     private readonly HttpClient _httpClient;
     private ApiConfig _config;
+    private IPluginManager? _pluginManager;
 
     public OpenAiService(ApiConfig config)
     {
@@ -24,11 +27,26 @@ public class OpenAiService : IAiService
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_config.ApiKey}");
     }
+    
+    public void SetPluginManager(IPluginManager pluginManager)
+    {
+        _pluginManager = pluginManager;
+    }
 
     public async Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory, string? conversationId = null)
     {
         try
         {
+            // 首先尝试通过插件处理消息
+            if (_pluginManager != null)
+            {
+                var pluginResult = await _pluginManager.ProcessMessageAsync(message, conversationId ?? "default");
+                if (pluginResult != null && pluginResult.IsHandled)
+                {
+                    return pluginResult.IsSuccess ? pluginResult.Message : pluginResult.ErrorMessage;
+                }
+            }
+            
             var messages = conversationHistory.Select(msg => new
             {
                 role = msg.Role,
@@ -87,14 +105,30 @@ public class OpenAiService : IAiService
 public class CloudApiService : IAiService
 {
     private ApiConfig _config;
+    private IPluginManager? _pluginManager;
 
     public CloudApiService(ApiConfig config)
     {
         _config = config;
     }
+    
+    public void SetPluginManager(IPluginManager pluginManager)
+    {
+        _pluginManager = pluginManager;
+    }
 
     public async Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory, string? conversationId = null)
     {
+        // 首先尝试通过插件处理消息
+        if (_pluginManager != null)
+        {
+            var pluginResult = await _pluginManager.ProcessMessageAsync(message, conversationId ?? "default");
+            if (pluginResult != null && pluginResult.IsHandled)
+            {
+                return pluginResult.IsSuccess ? pluginResult.Message : pluginResult.ErrorMessage;
+            }
+        }
+        
         // 这里可以实现其他云服务API的调用
         // 例如：Azure OpenAI、百度文心一言、阿里通义千问等
         
