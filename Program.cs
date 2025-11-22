@@ -17,30 +17,33 @@ class Program
         // 创建AI服务
         IAiService aiService = new OpenAiService(config);
         // 或者使用云API服务: IAiService aiService = new CloudApiService(config);
+        
+        // 创建会话管理服务
+        IConversationService conversationService = new ConversationService();
 
         // 检查命令行参数
         if (args.Length > 0 && (args[0] == "--console" || args[0] == "-c"))
         {
             // 命令行模式
-            RunConsoleMode(aiService).Wait();
+            RunConsoleMode(aiService, conversationService).Wait();
         }
         else
         {
             // 图形界面模式
-            RunGuiMode(aiService);
+            RunGuiMode(aiService, conversationService);
         }
     }
 
-    static async Task RunConsoleMode(IAiService aiService)
+    static async Task RunConsoleMode(IAiService aiService, IConversationService conversationService)
     {
-        var consoleUi = new ConsoleUI(aiService);
+        var consoleUi = new ConsoleUI(aiService, conversationService);
         await consoleUi.RunAsync();
     }
 
-    static void RunGuiMode(IAiService aiService)
+    static void RunGuiMode(IAiService aiService, IConversationService conversationService)
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new WinFormUI(aiService));
+        Application.Run(new WinFormUI(aiService, conversationService));
     }
 }

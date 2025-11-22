@@ -8,18 +8,22 @@ namespace AIChatAssistant.UI;
 public class ConsoleUI
 {
     private readonly IAiService _aiService;
-    private readonly List<ChatMessage> _conversationHistory;
+    private readonly IConversationService _conversationService;
 
-    public ConsoleUI(IAiService aiService)
+    public ConsoleUI(IAiService aiService, IConversationService conversationService)
     {
         _aiService = aiService;
-        _conversationHistory = new List<ChatMessage>();
+        _conversationService = conversationService;
+        
+        // 初始化时创建一个新会话
+        _conversationService.CreateConversation();
     }
 
     public async Task RunAsync()
     {
         Console.WriteLine("=== AI对话助手 - 命令行模式 ===");
         Console.WriteLine("输入 'quit' 退出，'clear' 清空对话历史，'config' 配置API");
+        Console.WriteLine("'new' 创建新对话，'list' 查看对话列表，'select id' 切换对话，'delete id' 删除对话");
 
         while (true)
         {
@@ -34,8 +38,16 @@ public class ConsoleUI
 
             if (input.ToLower() == "clear")
             {
-                _conversationHistory.Clear();
-                Console.WriteLine("对话历史已清空");
+                var currentConversation = _conversationService.GetActiveConversation();
+                if (currentConversation != null)
+                {
+                    currentConversation.Messages.Clear();
+                    Console.WriteLine("当前对话历史已清空");
+                }
+                else
+                {
+                    Console.WriteLine("没有活动对话");
+                }
                 continue;
             }
 
@@ -49,16 +61,27 @@ public class ConsoleUI
             Console.Write("AI: 思考中");
             var loadingTask = ShowLoadingAnimation();
 
+            // 获取当前活动会话
+            var activeConversation = _conversationService.GetActiveConversation();
+            if (activeConversation == null)
+            {
+                Console.WriteLine("错误: 当前没有活动对话");
+                continue;
+            }
+            
             // 发送消息并获取回复
-            var response = await _aiService.SendMessageAsync(input, _conversationHistory);
+            var response = await _aiService.SendMessageAsync(input, activeConversation.Messages, activeConversation.Id);
 
             loadingTask.Dispose(); // 停止加载动画
 
             Console.WriteLine($"\rAI: {response}");
 
             // 保存对话历史
-            _conversationHistory.Add(new ChatMessage { Role = "user", Content = input });
-            _conversationHistory.Add(new ChatMessage { Role = "assistant", Content = response });
+            var userMessage = new ChatMessage { Role = "user", Content = input };
+            var assistantMessage = new ChatMessage { Role = "assistant", Content = response };
+            
+            _conversationService.AddMessageToConversation(activeConversation.Id, userMessage);
+            _conversationService.AddMessageToConversation(activeConversation.Id, assistantMessage);
         }
     }
 
@@ -138,6 +161,30 @@ public class ConsoleUI
         }
         
         Console.WriteLine("API配置已保存");
+    }
+    
+    private void ListConversations()
+    {
+        var conversations = _conversationService.GetAllConversations();
+        if (conversations.Count == 0)
+        {
+            Console.WriteLine("没有对话记录");
+            return;
+        }
+        
+        Console.WriteLine("对话列表:");
+        Console.WriteLine("---------------------------");
+        foreach (var conversation in conversations)
+        {
+            var isActive = _conversationService.GetActiveConversation()?.Id == conversation.Id;
+            var status = isActive ? "[活跃]" : "[非活跃]";
+            Console.WriteLine($"{status} ID: {conversation.Id}");
+            Console.WriteLine($"  标题: {conversation.Title}");
+            Console.WriteLine($"  创建时间: {conversation.CreatedAt}");
+            Console.WriteLine($"  最后修改: {conversation.LastModifiedAt}");
+            Console.WriteLine($"  消息数: {conversation.Messages.Count}");
+            Console.WriteLine("---------------------------");
+        }
     }
 }
 

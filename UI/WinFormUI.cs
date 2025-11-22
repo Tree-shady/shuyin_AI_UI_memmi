@@ -4,26 +4,34 @@ using AIChatAssistant.Models;
 using AIChatAssistant.Services;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Linq;
 
 namespace AIChatAssistant.UI;
 
 public partial class WinFormUI : Form
 {
     private readonly IAiService _aiService;
-    private readonly List<ChatMessage> _conversationHistory;
+    private readonly IConversationService _conversationService;
     private RichTextBox? _chatBox;
     private TextBox? _inputBox;
     private Button? _sendButton;
     private Button? _clearButton;
     private Button? _configButton;
+    private Button? _newConversationButton;
+    private Button? _listConversationsButton;
+    private ComboBox? _conversationComboBox;
 
-    public WinFormUI(IAiService aiService)
+    public WinFormUI(IAiService aiService, IConversationService conversationService)
     {
         _aiService = aiService;
-        _conversationHistory = new List<ChatMessage>();
+        _conversationService = conversationService;
+        
+        // 初始化时创建一个新会话
+        _conversationService.CreateConversation();
         
         InitializeComponent();
         SetupUI();
+        UpdateConversationComboBox();
     }
 
     private void InitializeComponent()
@@ -35,16 +43,28 @@ public partial class WinFormUI : Form
         // 添加Resize事件处理
         Resize += new EventHandler(WinFormUI_Resize);
 
-        _chatBox = new RichTextBox
+        // 会话选择下拉框
+        _conversationComboBox = new ComboBox
         {
             Location = new Point(10, 10),
-            Size = new Size(760, 400),
+            Size = new Size(550, 25),
+            Font = new Font("Microsoft YaHei", 9),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+        };
+
+        // 聊天显示区域
+        _chatBox = new RichTextBox
+        {
+            Location = new Point(10, 40),
+            Size = new Size(760, 370),
             ReadOnly = true,
             BackColor = Color.White,
             Font = new Font("Microsoft YaHei", 10),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
         };
 
+        // 输入框
         _inputBox = new TextBox
         {
             Location = new Point(10, 430),
@@ -54,6 +74,7 @@ public partial class WinFormUI : Form
             Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
         };
 
+        // 发送按钮
         _sendButton = new Button
         {
             Location = new Point(620, 430),
@@ -65,6 +86,7 @@ public partial class WinFormUI : Form
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
 
+        // 清空对话按钮
         _clearButton = new Button
         {
             Location = new Point(620, 475),
@@ -75,6 +97,31 @@ public partial class WinFormUI : Form
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
 
+        // 新建对话按钮
+        _newConversationButton = new Button
+        {
+            Location = new Point(570, 10),
+            Size = new Size(90, 25),
+            Text = "新建对话",
+            BackColor = Color.Green,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+
+        // 对话列表按钮
+        _listConversationsButton = new Button
+        {
+            Location = new Point(670, 10),
+            Size = new Size(90, 25),
+            Text = "管理对话",
+            BackColor = Color.Purple,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+
+        // API配置按钮
         _configButton = new Button
         {
             Location = new Point(620, 520),
@@ -86,7 +133,10 @@ public partial class WinFormUI : Form
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
 
-        Controls.AddRange(new Control[] { _chatBox, _inputBox, _sendButton, _clearButton, _configButton });
+        Controls.AddRange(new Control[] { 
+            _conversationComboBox, _chatBox, _inputBox, _sendButton, _clearButton, 
+            _newConversationButton, _listConversationsButton, _configButton 
+        });
     }
 
     private void SetupUI()
@@ -110,6 +160,12 @@ public partial class WinFormUI : Form
                 }
                 // Shift+Enter保持默认的换行行为
             };
+        if (_newConversationButton != null)
+            _newConversationButton.Click += (s, e) => CreateNewConversation();
+        if (_listConversationsButton != null)
+            _listConversationsButton.Click += (s, e) => ShowConversationManager();
+        if (_conversationComboBox != null)
+            _conversationComboBox.SelectedIndexChanged += (s, e) => OnConversationSelected();
 
         // 添加欢迎消息
         AddMessageToChat("系统", "欢迎使用AI对话助手！", Color.Blue);
@@ -135,15 +191,29 @@ public partial class WinFormUI : Form
 
         try
         {
+            // 获取当前活动会话
+            var activeConversation = _conversationService.GetActiveConversation();
+            if (activeConversation == null)
+            {
+                AddMessageToChat("系统", "错误: 当前没有活动对话", Color.Red);
+                return;
+            }
+
             // 发送消息并获取回复
-            var response = await _aiService.SendMessageAsync(message, _conversationHistory);
+            var response = await _aiService.SendMessageAsync(message, activeConversation.Messages, activeConversation.Id);
 
             // 显示AI回复
             AddMessageToChat("AI", response, Color.DarkBlue);
 
             // 保存对话历史
-            _conversationHistory.Add(new ChatMessage { Role = "user", Content = message });
-            _conversationHistory.Add(new ChatMessage { Role = "assistant", Content = response });
+            var userMessage = new ChatMessage { Role = "user", Content = message };
+            var assistantMessage = new ChatMessage { Role = "assistant", Content = response };
+            
+            _conversationService.AddMessageToConversation(activeConversation.Id, userMessage);
+            _conversationService.AddMessageToConversation(activeConversation.Id, assistantMessage);
+            
+            // 更新对话下拉框
+            UpdateConversationComboBox();
         }
         catch (Exception ex)
         {
@@ -175,9 +245,14 @@ public partial class WinFormUI : Form
         if (_chatBox == null)
             return;
             
-        _chatBox.Clear();
-        _conversationHistory.Clear();
-        AddMessageToChat("系统", "对话历史已清空", Color.Blue);
+        // 获取当前活动会话
+        var activeConversation = _conversationService.GetActiveConversation();
+        if (activeConversation != null)
+        {
+            _chatBox.Clear();
+            activeConversation.Messages.Clear();
+            AddMessageToChat("系统", "当前对话历史已清空", Color.Blue);
+        }
     }
 
     private void ShowConfigDialog()
@@ -197,18 +272,26 @@ public partial class WinFormUI : Form
     private void WinFormUI_Resize(object? sender, EventArgs e)
     {
         // 确保所有控件不为null
-        if (_chatBox == null || _inputBox == null || _sendButton == null || _clearButton == null || _configButton == null)
+        if (_chatBox == null || _inputBox == null || _sendButton == null || _clearButton == null || _configButton == null ||
+            _conversationComboBox == null || _newConversationButton == null || _listConversationsButton == null)
             return;
             
+        // 对话选择框大小调整
+        _conversationComboBox.Width = ClientSize.Width - 210; // 减去右侧按钮宽度和边距
+        
+        // 右侧按钮位置调整
+        _newConversationButton.Left = ClientSize.Width - 190;
+        _listConversationsButton.Left = ClientSize.Width - 100;
+        
         // 聊天框大小调整
         _chatBox.Width = ClientSize.Width - 20; // 左右各留10像素边距
-        _chatBox.Height = ClientSize.Height - 130; // 底部留出足够空间给其他控件
+        _chatBox.Height = ClientSize.Height - 160; // 底部留出足够空间给其他控件
         
         // 输入框宽度调整
         _inputBox.Width = ClientSize.Width - 170; // 减去按钮宽度和边距
         _inputBox.Top = ClientSize.Height - 110; // 底部留出足够空间
         
-        // 右侧按钮位置调整
+        // 底部按钮位置调整
         _sendButton.Left = ClientSize.Width - 160; // 右侧留出10像素边距
         _sendButton.Top = ClientSize.Height - 110;
         
@@ -217,6 +300,298 @@ public partial class WinFormUI : Form
         
         _configButton.Left = ClientSize.Width - 160;
         _configButton.Top = ClientSize.Height - 30;
+    }
+    
+    // 更新对话下拉框
+    private void UpdateConversationComboBox()
+    {
+        if (_conversationComboBox == null)
+            return;
+            
+        var conversations = _conversationService.GetAllConversations();
+        var activeConversation = _conversationService.GetActiveConversation();
+        
+        _conversationComboBox.Items.Clear();
+        
+        foreach (var conversation in conversations)
+        {
+            _conversationComboBox.Items.Add(new ConversationItem(conversation));
+        }
+        
+        // 选择当前活动对话
+        if (activeConversation != null)
+        {
+            for (int i = 0; i < _conversationComboBox.Items.Count; i++)
+            {
+                if (_conversationComboBox.Items[i] is ConversationItem item && item.ConversationId == activeConversation.Id)
+                {
+                    _conversationComboBox.SelectedIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+    
+    // 当选择对话时切换到该对话
+    private void OnConversationSelected()
+    {
+        if (_conversationComboBox == null || _conversationComboBox.SelectedItem == null)
+            return;
+            
+        var selectedItem = _conversationComboBox.SelectedItem as ConversationItem;
+        if (selectedItem == null)
+            return;
+            
+        // 设置活动对话
+        _conversationService.SetActiveConversation(selectedItem.ConversationId);
+        
+        // 刷新聊天显示
+        LoadConversationHistory();
+    }
+    
+    // 加载对话历史到聊天窗口
+    private void LoadConversationHistory()
+    {
+        if (_chatBox == null)
+            return;
+            
+        var activeConversation = _conversationService.GetActiveConversation();
+        if (activeConversation == null)
+            return;
+            
+        _chatBox.Clear();
+        
+        foreach (var message in activeConversation.Messages)
+        {
+            string sender = message.Role == "user" ? "你" : "AI";
+            Color color = message.Role == "user" ? Color.DarkGreen : Color.DarkBlue;
+            AddMessageToChat(sender, message.Content, color);
+        }
+    }
+    
+    // 创建新对话
+    private void CreateNewConversation()
+    {
+        var newConversation = _conversationService.CreateConversation();
+        UpdateConversationComboBox();
+        _chatBox?.Clear();
+        AddMessageToChat("系统", "已创建新对话", Color.Blue);
+    }
+    
+    // 显示对话管理器
+    private void ShowConversationManager()
+    {
+        using var managerForm = new ConversationManagerForm(_conversationService);
+        if (managerForm.ShowDialog() == DialogResult.OK)
+        {
+            UpdateConversationComboBox();
+            LoadConversationHistory();
+        }
+    }
+    
+    // 对话项，用于下拉框显示
+    private class ConversationItem
+    {
+        public string ConversationId { get; }
+        public string Title { get; }
+        
+        public ConversationItem(Conversation conversation)
+        {
+            ConversationId = conversation.Id;
+            Title = conversation.Title;
+        }
+        
+        public override string ToString()
+        {
+            return Title;
+        }
+    }
+}
+
+// 对话管理窗体
+public class ConversationManagerForm : Form
+{
+    private readonly IConversationService _conversationService;
+    private readonly ListView _conversationListView;
+    private readonly Button _deleteButton;
+    private readonly Button _renameButton;
+    private readonly Button _selectButton;
+    private readonly Button _closeButton;
+    
+    public ConversationManagerForm(IConversationService conversationService)
+    {
+        _conversationService = conversationService;
+        
+        Text = "管理对话";
+        Size = new Size(600, 400);
+        StartPosition = FormStartPosition.CenterParent;
+        
+        // 初始化列表视图
+        _conversationListView = new ListView
+        {
+            Location = new Point(10, 10),
+            Size = new Size(560, 280),
+            View = View.Details,
+            FullRowSelect = true,
+            GridLines = true,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+        };
+        
+        // 添加列
+        _conversationListView.Columns.Add("ID", 100);
+        _conversationListView.Columns.Add("标题", 200);
+        _conversationListView.Columns.Add("创建时间", 120);
+        _conversationListView.Columns.Add("消息数", 60);
+        
+        // 删除按钮
+        _deleteButton = new Button
+        {
+            Location = new Point(10, 310),
+            Size = new Size(100, 35),
+            Text = "删除对话",
+            BackColor = Color.Red,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9)
+        };
+        
+        // 重命名按钮
+        _renameButton = new Button
+        {
+            Location = new Point(120, 310),
+            Size = new Size(100, 35),
+            Text = "重命名",
+            BackColor = Color.Orange,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9)
+        };
+        
+        // 选择按钮
+        _selectButton = new Button
+        {
+            Location = new Point(230, 310),
+            Size = new Size(100, 35),
+            Text = "选择对话",
+            BackColor = Color.Green,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9)
+        };
+        
+        // 关闭按钮
+        _closeButton = new Button
+        {
+            Location = new Point(470, 310),
+            Size = new Size(100, 35),
+            Text = "关闭",
+            BackColor = Color.Gray,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9)
+        };
+        
+        // 添加控件
+        Controls.AddRange(new Control[] {
+            _conversationListView, _deleteButton, _renameButton, _selectButton, _closeButton
+        });
+        
+        // 添加事件处理
+        _deleteButton.Click += DeleteSelectedConversation;
+        _renameButton.Click += RenameSelectedConversation;
+        _selectButton.Click += SelectSelectedConversation;
+        _closeButton.Click += (s, e) => Close();
+        
+        // 加载对话列表
+        LoadConversations();
+    }
+    
+    // 加载对话列表
+    private void LoadConversations()
+    {
+        _conversationListView.Items.Clear();
+        
+        var conversations = _conversationService.GetAllConversations();
+        var activeConversation = _conversationService.GetActiveConversation();
+        
+        foreach (var conversation in conversations)
+        {
+            var item = new ListViewItem(conversation.Id);
+            item.SubItems.Add(conversation.Title);
+            item.SubItems.Add(conversation.CreatedAt.ToString("yyyy-MM-dd HH:mm"));
+            item.SubItems.Add(conversation.Messages.Count.ToString());
+            
+            // 如果是活动对话，高亮显示
+            if (activeConversation != null && conversation.Id == activeConversation.Id)
+            {
+                item.BackColor = Color.LightBlue;
+            }
+            
+            _conversationListView.Items.Add(item);
+        }
+    }
+    
+    // 删除选中的对话
+    private void DeleteSelectedConversation(object? sender, EventArgs e)
+    {
+        if (_conversationListView.SelectedItems.Count == 0)
+        {
+            MessageBox.Show("请选择要删除的对话", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        
+        var selectedItem = _conversationListView.SelectedItems[0];
+        var conversationId = selectedItem.Text;
+        
+        var confirmResult = MessageBox.Show(
+            $"确定要删除对话 '{selectedItem.SubItems[1].Text}' 吗？", 
+            "确认删除", 
+            MessageBoxButtons.YesNo, 
+            MessageBoxIcon.Warning);
+        
+        if (confirmResult == DialogResult.Yes)
+        {
+            _conversationService.DeleteConversation(conversationId);
+            LoadConversations();
+        }
+    }
+    
+    // 重命名选中的对话
+    private void RenameSelectedConversation(object? sender, EventArgs e)
+    {
+        if (_conversationListView.SelectedItems.Count == 0)
+        {
+            MessageBox.Show("请选择要重命名的对话", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        
+        var selectedItem = _conversationListView.SelectedItems[0];
+        var conversationId = selectedItem.Text;
+        var currentTitle = selectedItem.SubItems[1].Text;
+        
+        var newTitle = Microsoft.VisualBasic.Interaction.InputBox(
+            "请输入新的对话标题", 
+            "重命名对话", 
+            currentTitle);
+        
+        if (!string.IsNullOrWhiteSpace(newTitle))
+        {
+            _conversationService.UpdateConversationTitle(conversationId, newTitle);
+            LoadConversations();
+        }
+    }
+    
+    // 选择对话
+    private void SelectSelectedConversation(object? sender, EventArgs e)
+    {
+        if (_conversationListView.SelectedItems.Count == 0)
+        {
+            MessageBox.Show("请选择要切换的对话", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        
+        var selectedItem = _conversationListView.SelectedItems[0];
+        var conversationId = selectedItem.Text;
+        
+        _conversationService.SetActiveConversation(conversationId);
+        DialogResult = DialogResult.OK;
+        Close();
     }
 }
 

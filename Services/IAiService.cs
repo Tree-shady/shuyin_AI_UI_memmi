@@ -8,7 +8,7 @@ namespace AIChatAssistant.Services;
 
 public interface IAiService
 {
-    Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory);
+    Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory, string? conversationId = null);
     void UpdateConfig(ApiConfig config);
 }
 
@@ -25,7 +25,7 @@ public class OpenAiService : IAiService
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_config.ApiKey}");
     }
 
-    public async Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory)
+    public async Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory, string? conversationId = null)
     {
         try
         {
@@ -93,7 +93,7 @@ public class CloudApiService : IAiService
         _config = config;
     }
 
-    public async Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory)
+    public async Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory, string? conversationId = null)
     {
         // 这里可以实现其他云服务API的调用
         // 例如：Azure OpenAI、百度文心一言、阿里通义千问等
