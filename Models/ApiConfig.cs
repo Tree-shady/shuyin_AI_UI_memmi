@@ -22,4 +22,20 @@ public class ApiConfig
     // Azure OpenAI 特定配置
     public string? AzureDeploymentId { get; set; } = null;
     public string? ApiVersion { get; set; } = "2023-05-15";
+    
+    // 从AiProviderConfig创建ApiConfig的构造函数
+    public ApiConfig(AiProviderConfig providerConfig)
+    {
+        ApiKey = providerConfig.ApiKey;
+        BaseUrl = providerConfig.BaseUrl;
+        Model = providerConfig.DefaultModel;
+        Provider = providerConfig.ProviderType;
+        AzureDeploymentId = providerConfig.AzureDeploymentId;
+        ApiVersion = providerConfig.ApiVersion;
+    }
+    
+    // 默认构造函数
+    public ApiConfig()
+    {
+    }
 }

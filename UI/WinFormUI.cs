@@ -26,10 +26,11 @@ public partial class WinFormUI : Form
     private TextBox? _inputBox;
     private Button? _sendButton;
     private Button? _clearButton;
-    private Button? _configButton;
     private Button? _newConversationButton;
     private Button? _listConversationsButton;
+    private Button? _configButton;
     private Button? _pluginsButton;
+    private Button? _providerManagerButton;
     private ComboBox? _conversationComboBox;
     private TrayIconService? _trayIconService;
 
@@ -151,7 +152,7 @@ public partial class WinFormUI : Form
         // 插件管理按钮
         _pluginsButton = new Button
         {
-            Location = new Point(460, 520),
+            Location = new Point(300, 520),
             Size = new Size(150, 35),
             Text = "插件管理",
             BackColor = Color.Purple,
@@ -160,9 +161,21 @@ public partial class WinFormUI : Form
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
 
+        // 供应商管理按钮
+        _providerManagerButton = new Button
+        {
+            Location = new Point(460, 520),
+            Size = new Size(150, 35),
+            Text = "供应商管理",
+            BackColor = Color.Teal,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 10),
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+        };
+
         Controls.AddRange(new Control[] { 
             _conversationComboBox, _chatBox, _inputBox, _sendButton, _clearButton, 
-            _newConversationButton, _listConversationsButton, _configButton, _pluginsButton 
+            _newConversationButton, _listConversationsButton, _configButton, _pluginsButton, _providerManagerButton 
         });
     }
 
@@ -198,6 +211,9 @@ public partial class WinFormUI : Form
         // 添加null检查以避免空引用异常
         if (_sendButton != null)
             _sendButton.Click += async (s, e) => await SendMessage();
+            
+        if (_providerManagerButton != null)
+            _providerManagerButton.Click += (s, e) => ShowProviderManager();
         if (_clearButton != null)
             _clearButton.Click += (s, e) => ClearConversation();
         if (_configButton != null)
@@ -526,6 +542,13 @@ public partial class WinFormUI : Form
             UpdateConversationComboBox();
             LoadConversationHistory();
         }
+    }
+    
+    // 显示供应商管理器
+    private void ShowProviderManager()
+    {
+        using var managerForm = new ProviderManagerForm();
+        managerForm.ShowDialog();
     }
     
     // 显示插件管理器
