@@ -10,6 +10,7 @@
 - **配置管理**：自定义API参数，如最大令牌数和温度值
 - **对话历史记录**：保存和管理对话历史
 - **系统托盘功能**：支持最小化到系统托盘，保持程序在后台运行不占用任务栏空间
+- **启动界面**：应用启动时显示的现代化启动界面，提供平滑的动画效果和加载状态显示
 
 ## 技术栈
 
@@ -29,10 +30,22 @@ AIChatAssistant/           # 主项目目录
 ├── Services/              # 服务层
 │   ├── IAiService.cs      # AI服务接口
 │   ├── IConversationService.cs # 会话管理服务接口
+│   ├── ConversationService.cs # 会话管理服务实现
+│   ├── SummaryService.cs  # 摘要服务
 │   └── TrayIconService.cs  # 系统托盘服务
 ├── UI/                    # 用户界面
 │   ├── ConsoleUI.cs       # 命令行界面实现
-│   └── WinFormUI.cs       # 图形界面实现
+│   ├── WinFormUI.cs       # 图形界面实现
+│   ├── MultiChatForm.cs   # 多聊天窗体
+│   └── SplashScreen.cs    # 启动界面实现
+├── Plugins/               # 插件系统
+│   ├── IPlugin.cs         # 插件接口
+│   ├── IPluginManager.cs  # 插件管理器接口
+│   ├── PluginBase.cs      # 插件基类
+│   ├── PluginManager.cs   # 插件管理器实现
+│   ├── PluginModels.cs    # 插件模型
+│   ├── CalculatorPlugin.cs # 计算器插件
+│   └── WeatherPlugin.cs   # 天气插件
 ├── config/                # 配置文件
 │   └── AppConfig.cs       # 应用配置
 ├── Program.cs             # 程序入口
@@ -90,7 +103,13 @@ dotnet run --gui
 
 ### 图形界面(GUI)使用
 
-#### 界面元素
+#### 启动界面
+- 应用启动时会显示现代化的启动界面
+- 启动界面包含应用标题、加载状态、进度条和版本信息
+- 提供平滑的淡入淡出动画效果
+- 圆角设计，简洁美观的视觉效果
+
+#### 主界面元素
 - 聊天显示区域：显示对话内容
 - 消息输入框：输入问题
 - 发送按钮：发送消息
@@ -99,6 +118,11 @@ dotnet run --gui
 - 管理对话按钮：打开会话管理窗口
 - 清空对话按钮：清空当前对话历史
 - 配置按钮：打开API配置窗口
+
+#### 多聊天窗体
+- 支持同时打开多个聊天窗口
+- 独立管理不同的对话会话
+- 可拖拽调整窗口位置和大小
 
 #### 系统托盘功能
 - **最小化到托盘**：点击窗口最小化按钮或关闭按钮时，程序会隐藏到系统托盘

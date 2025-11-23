@@ -282,10 +282,22 @@ public partial class WinFormUI : Form
         if (_chatBox == null)
             return;
             
-        _chatBox.SelectionStart = _chatBox.TextLength;
-        _chatBox.SelectionColor = color;
-        _chatBox.AppendText($"{sender}: {message}\n\n");
-        _chatBox.ScrollToCaret();
+        // 暂停布局更新，减少重绘次数
+        _chatBox.SuspendLayout();
+        
+        try
+        {
+            _chatBox.SelectionStart = _chatBox.TextLength;
+            _chatBox.SelectionColor = color;
+            _chatBox.AppendText($"{sender}: {message}\n\n");
+        }
+        finally
+        {
+            // 恢复布局更新
+            _chatBox.ResumeLayout(true);
+            // 只在恢复布局后滚动到末尾，避免多次滚动操作
+            _chatBox.ScrollToCaret();
+        }
     }
     
     private void WinFormUI_FormClosing(object? sender, FormClosingEventArgs e)

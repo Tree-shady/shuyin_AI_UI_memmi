@@ -122,6 +122,23 @@ class Program
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        
+        // 显示启动界面
+        using (var splashScreen = new SplashScreen())
+        {
+            // 显示启动界面（非阻塞方式）
+            splashScreen.Show();
+            
+            // 执行一些初始化操作，同时保持UI响应
+            // 使用DoEvents来确保启动界面能够正常显示和更新
+            for (int i = 0; i < 20; i++)
+            {
+                System.Threading.Thread.Sleep(100); // 模拟初始化工作
+                Application.DoEvents(); // 处理UI消息，确保启动界面更新
+            }
+        }
+        
+        // 启动界面关闭后，再启动主界面应用程序
         Application.Run(new WinFormUI(aiService, conversationService, pluginManager));
     }
 }

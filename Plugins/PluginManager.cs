@@ -182,13 +182,28 @@ public class PluginManager : IPluginManager, IDisposable
         if (string.IsNullOrEmpty(message))
             return PluginResult.NotHandled();
         
-        // 过滤出已启用的插件
-        var enabledPlugins = _plugins.Where(p => p != null && p.Info != null && p.Info.IsEnabled).ToList();
+        // 直接使用IEnumerable，避免创建临时List
+        var enabledPlugins = _plugins.Where(p => p != null && p.Info != null && p.Info.IsEnabled);
         
         // 首先尝试找到匹配触发词的插件
         foreach (var plugin in enabledPlugins)
         {
-            if (plugin.Info != null && plugin.Info.TriggerWords != null && plugin.Info.TriggerWords.Any(trigger => message.Contains(trigger, StringComparison.OrdinalIgnoreCase)))
+            // 使用更高效的空值检查和提前返回
+            if (plugin.Info?.TriggerWords == null || !plugin.Info.TriggerWords.Any())
+                continue;
+                
+            // 使用更高效的字符串包含检查
+            bool hasTriggerWord = false;
+            foreach (var trigger in plugin.Info.TriggerWords)
+            {
+                if (message.Contains(trigger, StringComparison.OrdinalIgnoreCase))
+                {
+                    hasTriggerWord = true;
+                    break;
+                }
+            }
+            
+            if (hasTriggerWord)
             {
                 try
                 {
@@ -200,7 +215,8 @@ public class PluginManager : IPluginManager, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"插件 {plugin.Info.Name} 处理消息时发生错误: {ex.Message}");
+                    // 使用更高效的字符串格式化
+                    Console.WriteLine("插件 " + plugin.Info.Name + " 处理消息时发生错误: " + ex.Message);
                     continue;
                 }
             }
@@ -219,7 +235,7 @@ public class PluginManager : IPluginManager, IDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"插件 {plugin.Info.Name} 处理消息时发生错误: {ex.Message}");
+                Console.WriteLine("插件 " + plugin.Info.Name + " 处理消息时发生错误: " + ex.Message);
                 continue;
             }
         }
