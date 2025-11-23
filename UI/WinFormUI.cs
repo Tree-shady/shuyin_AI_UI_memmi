@@ -23,6 +23,7 @@ public partial class WinFormUI : Form
     private Button? _listConversationsButton;
     private Button? _pluginsButton;
     private ComboBox? _conversationComboBox;
+    private TrayIconService? _trayIconService;
 
     public WinFormUI(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager)
     {
@@ -35,6 +36,7 @@ public partial class WinFormUI : Form
         
         InitializeComponent();
         SetupUI();
+        InitializeTrayIcon();
         UpdateConversationComboBox();
     }
 
@@ -46,6 +48,7 @@ public partial class WinFormUI : Form
         
         // 添加Resize事件处理
         Resize += new EventHandler(WinFormUI_Resize);
+        FormClosing += WinFormUI_FormClosing;
 
         // 会话选择下拉框
         _conversationComboBox = new ComboBox
@@ -155,6 +158,33 @@ public partial class WinFormUI : Form
         });
     }
 
+    private void InitializeTrayIcon()
+    {
+        try
+        {
+            // 初始化托盘图标服务
+            _trayIconService = new TrayIconService(this);
+            
+            // 订阅托盘事件
+            _trayIconService.ShowMainFormRequested += (sender, e) => ShowMainForm();
+            _trayIconService.ExitRequested += (sender, e) => ExitApplication();
+            _trayIconService.NewConversationRequested += (sender, e) => CreateNewConversation();
+            _trayIconService.ManageConversationsRequested += (sender, e) => OnManageConversationsRequested();
+            
+            // 默认不显示托盘图标，只在需要时显示
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"初始化系统托盘失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+    
+    private void OnManageConversationsRequested()
+    {
+        // 实现管理对话逻辑
+        MessageBox.Show("管理对话功能尚未实现", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
     private void SetupUI()
     {
         // 添加null检查以避免空引用异常
@@ -256,6 +286,44 @@ public partial class WinFormUI : Form
         _chatBox.AppendText($"{sender}: {message}\n\n");
         _chatBox.ScrollToCaret();
     }
+    
+    private void WinFormUI_FormClosing(object? sender, FormClosingEventArgs e)
+    {
+        // 如果是用户点击关闭按钮，则最小化到托盘而不是真正退出
+        if (e.CloseReason == CloseReason.UserClosing && _trayIconService != null)
+        {
+            // 显示托盘图标
+            _trayIconService.ShowTrayIcon();
+            
+            // 隐藏窗口而不是关闭
+            this.Hide();
+            
+            // 显示通知
+            _trayIconService.ShowNotification("AI对话助手", "程序已最小化到系统托盘", 2000);
+            
+            // 取消关闭事件
+            e.Cancel = true;
+        }
+        else
+        {
+            // 其他情况（如任务管理器强制关闭）则正常退出
+            _trayIconService?.Dispose();
+        }
+    }
+
+    private void ShowMainForm()
+    {
+        this.Show();
+        this.WindowState = FormWindowState.Normal;
+        this.Activate();
+    }
+    
+    private void ExitApplication()
+    {
+        // 释放托盘图标资源
+        _trayIconService?.Dispose();
+        Application.Exit();
+    }
 
     private void ClearConversation()
     {
@@ -289,6 +357,21 @@ public partial class WinFormUI : Form
     
     private void WinFormUI_Resize(object? sender, EventArgs e)
     {
+        // 当窗口最小化时，将其隐藏并显示在托盘
+        if (WindowState == FormWindowState.Minimized && _trayIconService != null)
+        {
+            // 显示托盘图标
+            _trayIconService.ShowTrayIcon();
+            
+            // 隐藏窗口
+            this.Hide();
+            
+            // 显示通知
+            _trayIconService.ShowNotification("AI对话助手", "程序已最小化到系统托盘", 2000);
+            
+            return; // 不需要调整控件大小
+        }
+
         // 确保所有控件不为null
         if (_chatBox == null || _inputBox == null || _sendButton == null || _clearButton == null || _configButton == null ||
             _conversationComboBox == null || _newConversationButton == null || _listConversationsButton == null)

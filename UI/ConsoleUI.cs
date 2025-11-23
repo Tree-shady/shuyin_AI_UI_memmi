@@ -24,80 +24,103 @@ public class ConsoleUI
 
     public async Task RunAsync()
     {
-        Console.WriteLine("=== AI对话助手 - 命令行模式 ===");
+        try
+        {
+            Console.WriteLine("=== AI对话助手 - 命令行模式 ===");
             Console.WriteLine("输入 'quit' 退出，'clear' 清空对话历史，'config' 配置API");
             Console.WriteLine("'new' 创建新对话，'list' 查看对话列表，'select id' 切换对话，'delete id' 删除对话");
             Console.WriteLine("'plugins' 显示已加载插件，'plugin [name] [enable/disable]' 启用/禁用插件");
 
-        while (true)
+            while (true)
+            {
+                try
+                {
+                    Console.Write("\n你: ");
+                    var input = Console.ReadLine();
+
+                    if (input == null) // 处理用户按下Ctrl+Z或Ctrl+C的情况
+                        break;
+
+                    if (string.IsNullOrWhiteSpace(input))
+                        continue;
+
+                    if (input.ToLower() == "quit")
+                        break;
+
+                    if (input.ToLower() == "clear")
+                    {
+                        var currentConversation = _conversationService.GetActiveConversation();
+                        if (currentConversation != null)
+                        {
+                            currentConversation.Messages.Clear();
+                            Console.WriteLine("当前对话历史已清空");
+                        }
+                        else
+                        {
+                            Console.WriteLine("没有活动对话");
+                        }
+                        continue;
+                    }
+                    
+                    if (input.ToLower() == "plugins")
+                    {
+                        ShowLoadedPlugins();
+                        continue;
+                    }
+                    
+                    if (input.ToLower().StartsWith("plugin "))
+                    {
+                        HandlePluginCommand(input.ToLower());
+                        continue;
+                    }
+
+                    if (input.ToLower() == "config")
+                    {
+                        ConfigureApi();
+                        continue;
+                    }
+
+                    // 显示思考中...
+                    Console.Write("AI: 思考中");
+                    var loadingTask = ShowLoadingAnimation();
+
+                    // 获取当前活动会话
+                    var activeConversation = _conversationService.GetActiveConversation();
+                    if (activeConversation == null)
+                    {
+                        Console.WriteLine("错误: 当前没有活动对话");
+                        continue;
+                    }
+                    
+                    // 发送消息并获取回复
+                    var response = await _aiService.SendMessageAsync(input, activeConversation.Messages, activeConversation.Id);
+
+                    loadingTask.Dispose(); // 停止加载动画
+
+                    Console.WriteLine($"\rAI: {response}");
+
+                    // 保存对话历史
+                    var userMessage = new ChatMessage { Role = "user", Content = input };
+                    var assistantMessage = new ChatMessage { Role = "assistant", Content = response };
+                    
+                    _conversationService.AddMessageToConversation(activeConversation.Id, userMessage);
+                    _conversationService.AddMessageToConversation(activeConversation.Id, assistantMessage);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"\n错误: {ex.Message}");
+                    // 记录详细错误信息
+                    Console.WriteLine($"详细错误: {ex.GetType().Name}");
+                    Console.WriteLine($"堆栈跟踪: {ex.StackTrace}");
+                }
+            }
+        }
+        catch (Exception ex)
         {
-            Console.Write("\n你: ");
-            var input = Console.ReadLine();
-
-            if (string.IsNullOrWhiteSpace(input))
-                continue;
-
-            if (input.ToLower() == "quit")
-                break;
-
-            if (input.ToLower() == "clear")
-            {
-                var currentConversation = _conversationService.GetActiveConversation();
-                if (currentConversation != null)
-                {
-                    currentConversation.Messages.Clear();
-                    Console.WriteLine("当前对话历史已清空");
-                }
-                else
-                {
-                    Console.WriteLine("没有活动对话");
-                }
-                continue;
-            }
-            
-            if (input.ToLower() == "plugins")
-            {
-                ShowLoadedPlugins();
-                continue;
-            }
-            
-            if (input.ToLower().StartsWith("plugin "))
-            {
-                HandlePluginCommand(input.ToLower());
-                continue;
-            }
-
-            if (input.ToLower() == "config")
-            {
-                ConfigureApi();
-                continue;
-            }
-
-            // 显示思考中...
-            Console.Write("AI: 思考中");
-            var loadingTask = ShowLoadingAnimation();
-
-            // 获取当前活动会话
-            var activeConversation = _conversationService.GetActiveConversation();
-            if (activeConversation == null)
-            {
-                Console.WriteLine("错误: 当前没有活动对话");
-                continue;
-            }
-            
-            // 发送消息并获取回复
-            var response = await _aiService.SendMessageAsync(input, activeConversation.Messages, activeConversation.Id);
-
-            loadingTask.Dispose(); // 停止加载动画
-
-            Console.WriteLine($"\rAI: {response}");
-
-            // 保存对话历史
-            var userMessage = new ChatMessage { Role = "user", Content = input };
-            var assistantMessage = new ChatMessage { Role = "assistant", Content = response };
-            
-            _conversationService.AddMessageToConversation(activeConversation.Id, userMessage);
-            _conversationService.AddMessageToConversation(activeConversation.Id, assistantMessage);
+            Console.WriteLine($"\n致命错误: {ex.Message}");
+            Console.WriteLine($"请按任意键退出...");
+            Console.ReadKey();
+            throw; // 重新抛出异常以便上层捕获
         }
     }
 
