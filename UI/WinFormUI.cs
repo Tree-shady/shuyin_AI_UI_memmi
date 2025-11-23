@@ -1,11 +1,19 @@
 // UI/WinFormUI.cs
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Xml.Linq;
 using AIChatAssistant.Config;
 using AIChatAssistant.Models;
 using AIChatAssistant.Plugins;
 using AIChatAssistant.Services;
-using System.Drawing;
-using System.Windows.Forms;
-using System.Linq;
 
 namespace AIChatAssistant.UI;
 
@@ -831,9 +839,13 @@ public class ConversationManagerForm : Form
 public class ApiConfigForm : Form
 {
     private readonly IAiService _aiService;
+    private readonly ComboBox _providerComboBox;
     private readonly TextBox _apiKeyTextBox;
     private readonly TextBox _baseUrlTextBox;
     private readonly TextBox _modelTextBox;
+    private readonly TextBox _azureDeploymentIdTextBox;
+    private readonly TextBox _apiVersionTextBox;
+    private readonly Panel _azureConfigPanel;
     private readonly NumericUpDown _maxTokensNumericUpDown;
     private readonly NumericUpDown _temperatureNumericUpDown;
     private readonly Button _saveButton;
@@ -844,35 +856,53 @@ public class ApiConfigForm : Form
         _aiService = aiService;
         
         Text = "API配置";
-        Size = new Size(500, 350);
+        Size = new Size(500, 450);
         StartPosition = FormStartPosition.CenterParent;
         
-        var apiKeyLabel = new Label { Text = "API Key:", Location = new Point(20, 20), Size = new Size(80, 25) };
-        _apiKeyTextBox = new TextBox { Location = new Point(100, 20), Size = new Size(350, 25), UseSystemPasswordChar = true };
+        // 提供商选择
+        var providerLabel = new Label { Text = "提供商:", Location = new Point(20, 20), Size = new Size(80, 25) };
+        _providerComboBox = new ComboBox { Location = new Point(100, 20), Size = new Size(350, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+        _providerComboBox.Items.AddRange(Enum.GetNames(typeof(AiProvider)));
+        
+        var apiKeyLabel = new Label { Text = "API Key:", Location = new Point(20, 60), Size = new Size(80, 25) };
+        _apiKeyTextBox = new TextBox { Location = new Point(100, 60), Size = new Size(350, 25), UseSystemPasswordChar = true };
 
-        var baseUrlLabel = new Label { Text = "Base URL:", Location = new Point(20, 60), Size = new Size(80, 25) };
-        _baseUrlTextBox = new TextBox { Location = new Point(100, 60), Size = new Size(350, 25) };
+        var baseUrlLabel = new Label { Text = "Base URL:", Location = new Point(20, 100), Size = new Size(80, 25) };
+        _baseUrlTextBox = new TextBox { Location = new Point(100, 100), Size = new Size(350, 25) };
 
-        var modelLabel = new Label { Text = "模型:", Location = new Point(20, 100), Size = new Size(80, 25) };
-        _modelTextBox = new TextBox { Location = new Point(100, 100), Size = new Size(350, 25) };
+        var modelLabel = new Label { Text = "模型:", Location = new Point(20, 140), Size = new Size(80, 25) };
+        _modelTextBox = new TextBox { Location = new Point(100, 140), Size = new Size(350, 25) };
 
-        var maxTokensLabel = new Label { Text = "最大令牌数:", Location = new Point(20, 140), Size = new Size(80, 25) };
-        _maxTokensNumericUpDown = new NumericUpDown { Location = new Point(100, 140), Size = new Size(350, 25), Minimum = 1, Maximum = 4000, Value = 1000 };
+        // Azure OpenAI 特定配置
+        _azureConfigPanel = new Panel { Location = new Point(20, 180), Size = new Size(450, 80) };
+        var azureDeploymentIdLabel = new Label { Text = "部署ID:", Location = new Point(0, 0), Size = new Size(80, 25) };
+        _azureDeploymentIdTextBox = new TextBox { Location = new Point(100, 0), Size = new Size(350, 25) };
+        var apiVersionLabel = new Label { Text = "API版本:", Location = new Point(0, 40), Size = new Size(80, 25) };
+        _apiVersionTextBox = new TextBox { Location = new Point(100, 40), Size = new Size(350, 25) };
+        _azureConfigPanel.Controls.AddRange(new Control[] { azureDeploymentIdLabel, _azureDeploymentIdTextBox, apiVersionLabel, _apiVersionTextBox });
 
-        var temperatureLabel = new Label { Text = "温度:", Location = new Point(20, 180), Size = new Size(80, 25) };
-        _temperatureNumericUpDown = new NumericUpDown { Location = new Point(100, 180), Size = new Size(350, 25), Minimum = 0, Maximum = 2, DecimalPlaces = 1, Increment = 0.1M, Value = 0.7M };
+        var maxTokensLabel = new Label { Text = "最大令牌数:", Location = new Point(20, 260), Size = new Size(80, 25) };
+        _maxTokensNumericUpDown = new NumericUpDown { Location = new Point(100, 260), Size = new Size(350, 25), Minimum = 1, Maximum = 4000, Value = 1000 };
 
-        _saveButton = new Button { Text = "保存", Location = new Point(150, 220), Size = new Size(80, 30) };
-        _cancelButton = new Button { Text = "取消", Location = new Point(250, 220), Size = new Size(80, 30) };
+        var temperatureLabel = new Label { Text = "温度:", Location = new Point(20, 300), Size = new Size(80, 25) };
+        _temperatureNumericUpDown = new NumericUpDown { Location = new Point(100, 300), Size = new Size(350, 25), Minimum = 0, Maximum = 2, DecimalPlaces = 1, Increment = 0.1M, Value = 0.7M };
+
+        _saveButton = new Button { Text = "保存", Location = new Point(150, 340), Size = new Size(80, 30) };
+        _cancelButton = new Button { Text = "取消", Location = new Point(250, 340), Size = new Size(80, 30) };
 
         Controls.AddRange(new Control[] {
+            providerLabel, _providerComboBox,
             apiKeyLabel, _apiKeyTextBox,
             baseUrlLabel, _baseUrlTextBox,
             modelLabel, _modelTextBox,
+            _azureConfigPanel,
             maxTokensLabel, _maxTokensNumericUpDown,
             temperatureLabel, _temperatureNumericUpDown,
             _saveButton, _cancelButton
         });
+        
+        // 添加提供商变更事件
+        _providerComboBox.SelectedIndexChanged += ProviderComboBox_SelectedIndexChanged;
         
         // 加载现有配置 - 确保在所有控件初始化并添加到Controls集合后调用
         LoadExistingConfig();
@@ -880,16 +910,77 @@ public class ApiConfigForm : Form
         _saveButton.Click += SaveConfig;
         _cancelButton.Click += (s, e) => Close();
     }
+    
+    // 提供商变更时更新UI
+    private void ProviderComboBox_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (_providerComboBox.SelectedItem is string selectedProviderName && 
+            Enum.TryParse<AiProvider>(selectedProviderName, out var selectedProvider))
+        {
+            // 根据提供商显示/隐藏Azure配置面板
+            _azureConfigPanel.Visible = selectedProvider == AiProvider.AzureOpenAI;
+            
+            // 设置默认值
+            var defaultConfig = AppConfig.GetDefaultConfigForProvider(selectedProvider);
+            if (defaultConfig != null)
+            {
+                if (string.IsNullOrEmpty(_baseUrlTextBox.Text))
+                    _baseUrlTextBox.Text = defaultConfig.BaseUrl;
+                if (string.IsNullOrEmpty(_modelTextBox.Text))
+                    _modelTextBox.Text = defaultConfig.Model;
+                if (selectedProvider == AiProvider.AzureOpenAI)
+                {
+                    if (string.IsNullOrEmpty(_apiVersionTextBox.Text))
+                        _apiVersionTextBox.Text = defaultConfig.ApiVersion ?? "2023-05-15";
+                }
+            }
+        }
+    }
 
+    private void LoadExistingConfig()
+    {
+        try
+        {
+            var config = AppConfig.LoadConfig();
+            if (config != null)
+            {
+                // 设置提供商选择
+                if (_providerComboBox.Items.Contains(config.Provider.ToString()))
+                {
+                    _providerComboBox.SelectedItem = config.Provider.ToString();
+                }
+                
+                // 显示或隐藏Azure配置面板
+                _azureConfigPanel.Visible = config.Provider == AiProvider.AzureOpenAI;
+                
+                // 设置其他配置项
+                _apiKeyTextBox.Text = config.ApiKey ?? "";
+                _baseUrlTextBox.Text = config.BaseUrl ?? "";
+                _modelTextBox.Text = config.Model ?? "";
+                _azureDeploymentIdTextBox.Text = config.AzureDeploymentId ?? "";
+                _apiVersionTextBox.Text = config.ApiVersion ?? "2023-05-15";
+                _maxTokensNumericUpDown.Value = config.MaxTokens;
+                _temperatureNumericUpDown.Value = (decimal)config.Temperature;
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("加载配置失败: " + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+    
     private void SaveConfig(object? sender, EventArgs e)
     {
         try
         {
             var config = new ApiConfig
             {
+                Provider = Enum.TryParse<AiProvider>(_providerComboBox.SelectedItem as string ?? "OpenAI", out var provider) ? provider : AiProvider.OpenAI,
                 ApiKey = _apiKeyTextBox?.Text ?? "",
                 BaseUrl = _baseUrlTextBox?.Text ?? "",
                 Model = _modelTextBox?.Text ?? "",
+                AzureDeploymentId = _azureDeploymentIdTextBox?.Text ?? "",
+                ApiVersion = _apiVersionTextBox?.Text ?? "",
                 MaxTokens = _maxTokensNumericUpDown != null ? (int)_maxTokensNumericUpDown.Value : 1000,
                 Temperature = _temperatureNumericUpDown != null ? (double)_temperatureNumericUpDown.Value : 0.7
             };
@@ -910,6 +1001,9 @@ public class ApiConfigForm : Form
                 }
             }
 
+            // 调用Program类中的方法更新静态AI服务实例
+            Program.UpdateAiService(config);
+
             MessageBox.Show("配置已保存", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
             Close();
         }
@@ -919,33 +1013,5 @@ public class ApiConfigForm : Form
         }
     }
     
-    private void LoadExistingConfig()
-    {
-        try
-        {
-            // 从文件加载配置
-            var config = AppConfig.LoadConfig();
-            
-            // 添加null检查
-            if (config != null)
-            {
-                // 设置控件值，添加null检查避免空引用异常
-                if (_apiKeyTextBox != null)
-                    _apiKeyTextBox.Text = config.ApiKey ?? "";
-                if (_baseUrlTextBox != null)
-                    _baseUrlTextBox.Text = config.BaseUrl ?? "";
-                if (_modelTextBox != null)
-                    _modelTextBox.Text = config.Model ?? "";
-                if (_maxTokensNumericUpDown != null)
-                    _maxTokensNumericUpDown.Value = config.MaxTokens;
-                if (_temperatureNumericUpDown != null)
-                    _temperatureNumericUpDown.Value = (decimal)config.Temperature;
-            }
-        }
-        catch (Exception ex)
-        {
-            // 捕获并显示错误，但不中断程序流程
-            System.Diagnostics.Debug.WriteLine($"加载配置时出错: {ex.Message}");
-        }
-    }
+
 }

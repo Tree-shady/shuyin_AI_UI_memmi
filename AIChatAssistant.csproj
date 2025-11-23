@@ -8,4 +8,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Anthropic" Version="10.2.1" />
+    <PackageReference Include="Google.Cloud.AIPlatform.V1" Version="3.56.0" />
+  </ItemGroup>
+
 </Project>

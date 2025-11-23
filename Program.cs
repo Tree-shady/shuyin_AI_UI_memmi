@@ -11,6 +11,7 @@ namespace AIChatAssistant;
 class Program
 {
     private static System.Threading.ManualResetEvent _exitEvent = new System.Threading.ManualResetEvent(false);
+    private static IAiService? _currentAiService;
     
     [STAThread]
     static void Main(string[] args)
@@ -18,9 +19,9 @@ class Program
         // 加载配置
         var config = AppConfig.LoadConfig();
 
-        // 创建AI服务
-        IAiService aiService = new OpenAiService(config);
-        // 或者使用云API服务: IAiService aiService = new CloudApiService(config);
+        // 使用工厂模式创建AI服务
+        IAiService aiService = AiServiceFactory.CreateAiService(config);
+        _currentAiService = aiService;
         
         // 创建会话管理服务
         IConversationService conversationService = new ConversationService();
@@ -118,6 +119,15 @@ class Program
         }
     }
 
+    // 用于动态更新AI服务实例
+    public static void UpdateAiService(ApiConfig config)
+    {
+        if (_currentAiService != null)
+        {
+            _currentAiService = AiServiceFactory.CreateAiService(config);
+        }
+    }
+    
     static void RunGuiMode(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager)
     {
         Application.EnableVisualStyles();
