@@ -1,0 +1,19 @@
+{
+  "AutoHideToTray": true,
+  "StartMinimizedToTray": false,
+  "Theme": "Light",
+  "ShowNotifications": true,
+  "FontSize": 10,
+  "SaveConversationHistory": true,
+  "ConversationHistoryLimit": 100,
+  "AutoSave": true,
+  "AutoSaveIntervalSeconds": 60,
+  "EnableCache": true,
+  "CacheSizeLimitMB": 100,
+  "CacheExpiryMinutes": 1440,
+  "CacheMaxItems": 1000,
+  "CacheExpirationMinutes": 1440,
+  "PersistCacheToDisk": true,
+  "EnableAnalytics": true,
+  "SendAnonymousUsageData": true
+}

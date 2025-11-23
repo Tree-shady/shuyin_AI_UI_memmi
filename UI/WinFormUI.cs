@@ -233,9 +233,9 @@ public partial class WinFormUI : Form
         AddMessageToChat("你", message, Color.DarkGreen);
         _inputBox.Clear();
 
-        // 禁用按钮防止重复发送
+        // 只禁用发送按钮防止重复发送，保留输入框的可用性
         _sendButton.Enabled = false;
-        _inputBox.Enabled = false;
+        // 移除对输入框的禁用，让用户可以继续输入
 
         try
         {
@@ -247,7 +247,7 @@ public partial class WinFormUI : Form
                 return;
             }
 
-            // 发送消息并获取回复
+            // 异步发送消息并获取回复
             var response = await _aiService.SendMessageAsync(message, activeConversation.Messages, activeConversation.Id);
 
             // 显示AI回复
@@ -269,9 +269,10 @@ public partial class WinFormUI : Form
         }
         finally
         {
+            // 恢复发送按钮的可用性
             _sendButton.Enabled = true;
-            _inputBox.Enabled = true;
-            _inputBox.Focus();
+            // 不需要重新启用输入框，因为我们没有禁用它
+            _inputBox.Focus(); // 确保输入框仍然保持焦点
         }
     }
 
@@ -289,20 +290,37 @@ public partial class WinFormUI : Form
     
     private void WinFormUI_FormClosing(object? sender, FormClosingEventArgs e)
     {
-        // 如果是用户点击关闭按钮，则最小化到托盘而不是真正退出
+        // 如果是用户点击关闭按钮，显示选择框
         if (e.CloseReason == CloseReason.UserClosing && _trayIconService != null)
         {
-            // 显示托盘图标
-            _trayIconService.ShowTrayIcon();
+            // 显示确认对话框，让用户选择是关闭软件还是最小化到托盘
+            var result = MessageBox.Show(
+                "请选择操作：\n\n最小化到系统托盘 - 点击'是'\n完全退出程序 - 点击'否'",
+                "确认操作",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Question);
             
-            // 隐藏窗口而不是关闭
-            this.Hide();
-            
-            // 显示通知
-            _trayIconService.ShowNotification("AI对话助手", "程序已最小化到系统托盘", 2000);
-            
-            // 取消关闭事件
-            e.Cancel = true;
+            if (result == DialogResult.Yes)
+            {
+                // 用户选择最小化到托盘
+                // 显示托盘图标
+                _trayIconService.ShowTrayIcon();
+                
+                // 隐藏窗口而不是关闭
+                this.Hide();
+                
+                // 显示通知
+                _trayIconService.ShowNotification("AI对话助手", "程序已最小化到系统托盘", 2000);
+                
+                // 取消关闭事件
+                e.Cancel = true;
+            }
+            else if (result == DialogResult.Cancel)
+            {
+                // 用户取消操作，保持程序打开
+                e.Cancel = true;
+            }
+            // 如果用户选择DialogResult.No，则不取消关闭事件，程序会正常退出
         }
         else
         {

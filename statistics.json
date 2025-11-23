@@ -1,0 +1,22 @@
+{
+  "firstLaunchTime": "2025-11-23T18:16:07.3376506+08:00",
+  "lastLaunchTime": "2025-11-23T18:16:07.3520965+08:00",
+  "totalLaunches": 1,
+  "totalConversations": 0,
+  "totalMessages": 0,
+  "totalResponseTime": 0,
+  "todayConversations": 0,
+  "todayMessages": 0,
+  "cacheHitRate": 0,
+  "cacheHits": 0,
+  "cacheMisses": 0,
+  "totalTimeSaved": 0,
+  "lastActivityTime": "0001-01-01T00:00:00",
+  "dailyStats": [
+    {
+      "date": "2025-11-23",
+      "conversations": 0,
+      "messages": 0
+    }
+  ]
+}
