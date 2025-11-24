@@ -5,10 +5,12 @@ namespace AIChatAssistant.Models
     /// </summary>
     public enum LogLevel
     {
-        Info,
+        Trace,
         Debug,
+        Info,
         Warning,
-        Error
+        Error,
+        Fatal
     }
 
     /// <summary>
@@ -50,6 +52,16 @@ namespace AIChatAssistant.Models
         /// 响应参数信息
         /// </summary>
         public string ResponseParams { get; set; }
+        
+        /// <summary>
+        /// 结构化日志属性字典
+        /// </summary>
+        public Dictionary<string, object> Properties { get; set; }
+        
+        /// <summary>
+        /// 日志事件ID
+        /// </summary>
+        public int EventId { get; set; } = 0;
 
         /// <summary>
         /// 构造函数
@@ -68,6 +80,7 @@ namespace AIChatAssistant.Models
             Level = level;
             Source = source;
             Message = message;
+            Properties = new Dictionary<string, object>();
         }
         
         /// <summary>
@@ -86,6 +99,7 @@ namespace AIChatAssistant.Models
             Message = message;
             RequestParams = requestParams;
             ResponseParams = responseParams;
+            Properties = new Dictionary<string, object>();
         }
 
         /// <summary>
@@ -99,6 +113,25 @@ namespace AIChatAssistant.Models
             : this(level, source, message)
         {
             Exception = exception?.ToString();
+            Properties = new Dictionary<string, object>();
+        }
+        
+        /// <summary>
+        /// 添加结构化日志属性
+        /// </summary>
+        public DebugLog WithProperty(string key, object value)
+        {
+            Properties[key] = value;
+            return this;
+        }
+        
+        /// <summary>
+        /// 设置事件ID
+        /// </summary>
+        public DebugLog WithEventId(int eventId)
+        {
+            EventId = eventId;
+            return this;
         }
 
         /// <summary>
@@ -107,7 +140,17 @@ namespace AIChatAssistant.Models
         public override string ToString()
         {
             // 命令行样式：使用更简洁的格式，类似终端输出
-            var result = $"[{Timestamp:HH:mm:ss}] {Level,-7} {Source}: {Message}";
+            var result = $"[{Timestamp:yyyy-MM-dd HH:mm:ss.fff}] {Level,-7} [{EventId}] {Source}: {Message}";
+            
+            if (Properties != null && Properties.Count > 0)
+            {
+                // 添加结构化属性
+                result += $"\n> PROPS:";
+                foreach (var prop in Properties)
+                {
+                    result += $"\n  {prop.Key}: {prop.Value}";
+                }
+            }
             
             if (!string.IsNullOrEmpty(RequestParams))
             {

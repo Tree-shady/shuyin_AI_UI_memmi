@@ -2,6 +2,8 @@
 using AIChatAssistant.Models;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using System.IO;
 
 namespace AIChatAssistant.Services;
 
@@ -9,6 +11,82 @@ public class ConversationService : IConversationService
 {
     private readonly List<Conversation> _conversations = new List<Conversation>();
     private string? _activeConversationId = null;
+    private readonly string _conversationsFilePath;
+    private readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true
+    };
+    
+    public ConversationService()
+    {
+        // 设置对话保存路径
+        var appDataDir = Path.Combine(AppContext.BaseDirectory, "data");
+        Directory.CreateDirectory(appDataDir);
+        _conversationsFilePath = Path.Combine(appDataDir, "conversations.json");
+        
+        // 加载已保存的对话
+        LoadConversations();
+    }
+    
+    /// <summary>
+    /// 从文件加载对话
+    /// </summary>
+    private void LoadConversations()
+    {
+        try
+        {
+            if (File.Exists(_conversationsFilePath))
+            {
+                var json = File.ReadAllText(_conversationsFilePath);
+                var savedData = JsonSerializer.Deserialize<ConversationData>(json, _jsonOptions);
+                
+                if (savedData != null)
+                {
+                    _conversations.Clear();
+                    _conversations.AddRange(savedData.Conversations);
+                    _activeConversationId = savedData.ActiveConversationId;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // 记录加载失败，但不影响程序运行
+            DebugService.Instance.LogWarning("ConversationService", $"加载对话失败: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// 保存对话到文件
+    /// </summary>
+    private void SaveConversations()
+    {
+        try
+        {
+            var data = new ConversationData
+            {
+                Conversations = _conversations.ToList(),
+                ActiveConversationId = _activeConversationId
+            };
+            
+            var json = JsonSerializer.Serialize(data, _jsonOptions);
+            File.WriteAllText(_conversationsFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            // 记录保存失败，但不影响程序运行
+            DebugService.Instance.LogWarning("ConversationService", $"保存对话失败: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// 用于序列化的对话数据类
+    /// </summary>
+    private class ConversationData
+    {
+        public List<Conversation> Conversations { get; set; } = new List<Conversation>();
+        public string? ActiveConversationId { get; set; }
+    }
     
     // 创建新会话
     public Conversation CreateConversation()
@@ -16,6 +94,7 @@ public class ConversationService : IConversationService
         var conversation = new Conversation();
         _conversations.Add(conversation);
         _activeConversationId = conversation.Id;
+        SaveConversations();
         return conversation;
     }
     
@@ -41,6 +120,7 @@ public class ConversationService : IConversationService
             existingConversation.Title = conversation.Title;
             existingConversation.LastModifiedAt = conversation.LastModifiedAt;
             existingConversation.Messages = conversation.Messages;
+            SaveConversations();
         }
     }
     
@@ -62,6 +142,7 @@ public class ConversationService : IConversationService
                     _activeConversationId = _conversations.OrderByDescending(c => c.LastModifiedAt).First().Id;
                 }
             }
+            SaveConversations();
             return true;
         }
         return false;
@@ -84,6 +165,7 @@ public class ConversationService : IConversationService
         if (conversation != null)
         {
             _activeConversationId = conversationId;
+            SaveConversations();
         }
     }
     
@@ -94,6 +176,7 @@ public class ConversationService : IConversationService
         if (conversation != null)
         {
             conversation.AddMessage(message);
+            SaveConversations();
         }
     }
     
@@ -104,6 +187,7 @@ public class ConversationService : IConversationService
         if (conversation != null)
         {
             conversation.UpdateTitle(newTitle);
+            SaveConversations();
         }
     }
 }

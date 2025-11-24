@@ -1,13 +1,15 @@
-using AIChatAssistant.Models;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 using System.IO;
 using System.Linq;
-using System;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using AIChatAssistant.Models;
+using System.Collections.Concurrent;
 
 namespace AIChatAssistant.Services
 {
@@ -22,11 +24,36 @@ namespace AIChatAssistant.Services
         // 日志集合
         private readonly ObservableCollection<DebugLog> _logs;
         
+        // 缩进字符串常量
+        private const string IndentString = "  ";
         // 最大日志条目数
         private int _maxLogEntries = 1000;
         
         // 线程锁对象
         private readonly object _lock = new object();
+        
+        // 文件日志相关字段
+        private bool _isFileLoggingEnabled = false;
+        private string _logDirectory = string.Empty;
+        private int _maxFileSizeInMB = 10;
+        private int _maxFileCount = 5;
+        private string _currentLogFilePath = string.Empty;
+        private long _currentFileSize = 0;
+        private StreamWriter _logWriter = null;
+        private Thread _fileWriteThread = null;
+        private BlockingCollection<string> _logQueue = null;
+        
+        // 日志级别过滤器
+        private LogLevel _minLogLevel = LogLevel.Info;
+        
+        // 批处理相关
+        private int _batchSize = 10; // 可配置的批处理大小
+        private List<string> _logBatch = new List<string>();
+        private int _batchCounter = 0;
+        private readonly object _batchLock = new object();
+        
+        // 日志输出格式
+        private AIChatAssistant.Models.LogOutputFormat _outputFormat = AIChatAssistant.Models.LogOutputFormat.Default;
 
         /// <summary>
         /// 单例实例
@@ -47,11 +74,23 @@ namespace AIChatAssistant.Services
             set 
             { 
                 if (value > 0)
-                {
-                    _maxLogEntries = value;
+                {                    _maxLogEntries = value;
                     // 如果当前日志数量超过新的限制，清理旧日志
                     EnsureMaxEntries();
                 }
+            } 
+        }
+        
+        /// <summary>
+        /// 最小日志记录级别
+        /// </summary>
+        public LogLevel MinLogLevel
+        { 
+            get => _minLogLevel; 
+            set 
+            { 
+                _minLogLevel = value;
+                LogInfo("DebugService", $"日志级别已设置为: {value}");
             } 
         }
 
@@ -66,6 +105,86 @@ namespace AIChatAssistant.Services
         private DebugService()
         {
             _logs = new ObservableCollection<DebugLog>();
+            _logQueue = new BlockingCollection<string>();
+            _logBatch = new List<string>(_batchSize);
+            
+            // 启动日志写入线程
+            _fileWriteThread = new Thread(WriteLogsToFileLoop)
+            {
+                IsBackground = true,
+                Name = "LogFileWriter"
+            };
+            _fileWriteThread.Start();
+        }
+        
+        /// <summary>
+        /// 应用日志配置
+        /// </summary>
+        /// <param name="config">日志配置对象</param>
+        public void ApplyConfig(AIChatAssistant.Models.LogConfig config)
+        {            if (config == null)
+                throw new ArgumentNullException(nameof(config));
+                
+            lock (_lock)
+            {                // 应用日志级别配置
+                _minLogLevel = config.MinLogLevel;
+                
+                // 应用日志条目数限制
+                _maxLogEntries = config.MaxLogEntries;
+                EnsureMaxEntries();
+                
+                // 应用批处理大小
+                _batchSize = config.BatchSize;
+                lock (_batchLock)
+                {                    // 调整批处理列表大小
+                    _logBatch.Capacity = _batchSize;
+                }
+                
+                // 应用输出格式
+                _outputFormat = config.OutputFormat;
+                
+                // 应用文件日志配置
+                _logDirectory = config.LogDirectory;
+                _maxFileSizeInMB = config.MaxFileSizeInMB;
+                _maxFileCount = config.MaxFileCount;
+                
+                // 根据配置启用或禁用文件日志
+                if (config.EnableFileLogging != _isFileLoggingEnabled)
+                {                    if (config.EnableFileLogging)
+                        EnableFileLogging(config.LogDirectory, _maxFileSizeInMB, _maxFileCount);
+                    else
+                        DisableFileLogging();
+                }
+                
+                LogInfo("DebugService", "日志配置已应用");
+            }
+        }
+        
+        /// <summary>
+        /// 获取当前日志配置
+        /// </summary>
+        /// <returns>当前日志配置对象</returns>
+        public AIChatAssistant.Models.LogConfig GetCurrentConfig()
+        {            lock (_lock)
+            {                return new AIChatAssistant.Models.LogConfig
+                {                    MinLogLevel = _minLogLevel,
+                    MaxLogEntries = _maxLogEntries,
+                    EnableFileLogging = _isFileLoggingEnabled,
+                    LogDirectory = _logDirectory,
+                    MaxFileSizeInMB = _maxFileSizeInMB,
+                    MaxFileCount = _maxFileCount,
+                    BatchSize = _batchSize,
+                    OutputFormat = _outputFormat
+                };
+            }
+        }
+        
+        ~DebugService()
+        {            // 确保所有批处理日志都被写入
+            FlushBatch();
+            DisableFileLogging();
+            _logQueue?.CompleteAdding();
+            _fileWriteThread?.Join(1000);
         }
 
         /// <summary>
@@ -79,9 +198,12 @@ namespace AIChatAssistant.Services
         /// <summary>
         /// 记录调试日志
         /// </summary>
+        public void LogTrace(string source, string message)
+        {            AddLog(new DebugLog(LogLevel.Trace, source, message));
+        }
+        
         public void LogDebug(string source, string message)
-        {
-            AddLog(new DebugLog(LogLevel.Debug, source, message));
+        {            AddLog(new DebugLog(LogLevel.Debug, source, message));
         }
         
         /// <summary>
@@ -104,16 +226,22 @@ namespace AIChatAssistant.Services
         /// 记录错误日志
         /// </summary>
         public void LogError(string source, string message)
-        {
-            AddLog(new DebugLog(LogLevel.Error, source, message));
+        {            AddLog(new DebugLog(LogLevel.Error, source, message));
+        }
+        
+        public void LogFatal(string source, string message)
+        {            AddLog(new DebugLog(LogLevel.Fatal, source, message));
         }
 
         /// <summary>
         /// 记录异常日志
         /// </summary>
         public void LogException(string source, string message, System.Exception exception)
-        {
-            AddLog(new DebugLog(LogLevel.Error, source, message, exception));
+        {            AddLog(new DebugLog(LogLevel.Error, source, message, exception));
+        }
+        
+        public void LogFatalException(string source, string message, System.Exception exception)
+        {            AddLog(new DebugLog(LogLevel.Fatal, source, message, exception));
         }
 
         /// <summary>
@@ -169,15 +297,29 @@ namespace AIChatAssistant.Services
         /// 添加日志到集合
         /// </summary>
         private void AddLog(DebugLog log)
-        {
+        {            // 日志级别过滤 - 如果日志级别低于最小级别则直接返回
+            if (log.Level < _minLogLevel)
+                return;
+            
+            // 获取格式化的日志
+            string formattedLog = GetFormattedLog(log);
+            
+            // 先将日志添加到队列中用于文件写入
+            if (_isFileLoggingEnabled && _logQueue != null && !_logQueue.IsAddingCompleted)
+            {                try
+                {                    // 使用批处理方式添加到队列
+                    AddToBatch(formattedLog);
+                }
+                catch (Exception)
+                {                    // 如果队列已满或已完成添加，则忽略
+                }
+            }
+            
             lock (_lock)
-            {
-                try
-                {
-                    // 检查是否有打开的表单
+            {                try
+                {                    // 检查是否有打开的表单
                     if (Application.OpenForms.Count == 0)
-                    {
-                        // 如果没有UI上下文，直接添加到集合
+                    {                        // 如果没有UI上下文，直接添加到集合
                         _logs.Insert(0, log);
                         EnsureMaxEntries();
                         return;
@@ -185,33 +327,267 @@ namespace AIChatAssistant.Services
                     
                     // 在UI线程上执行添加操作
                     if (Application.MessageLoop)
-                    {
-                        if (Application.OpenForms.Count > 0 && Application.OpenForms[0] != null)
+                    {                        if (Application.OpenForms.Count > 0 && Application.OpenForms[0] != null)
                             Application.OpenForms[0].Invoke(() =>
-                            {
-                                _logs.Insert(0, log); // 新日志添加到开头
+                            {                                // 使用高效的插入方式
+                                _logs.Insert(0, log);
                                 EnsureMaxEntries();
                                 // 触发日志添加事件
                                 LogAdded?.Invoke(this, log);
                             });
                     }
                     else
-                    {
-                        // 如果不是在UI线程，使用BeginInvoke异步执行
+                    {                        // 如果不是在UI线程，使用BeginInvoke异步执行
                         if (Application.OpenForms.Count > 0 && Application.OpenForms[0] != null)
                             Application.OpenForms[0].BeginInvoke(() =>
-                            {
-                                _logs.Insert(0, log);
+                            {                                _logs.Insert(0, log);
                                 EnsureMaxEntries();
                                 LogAdded?.Invoke(this, log);
                             });
                     }
                 }
                 catch (Exception ex)
-                {
-                    // 记录添加日志失败的情况
+                {                    // 记录添加日志失败的情况
                     Console.WriteLine($"添加日志失败: {ex.Message}");
                 }
+            }
+        }
+        
+        /// <summary>
+        /// 将日志添加到批处理队列
+        /// </summary>
+        private void AddToBatch(string logEntry)
+        {            lock (_batchLock)
+            {                _logBatch.Add(logEntry);
+                _batchCounter++;
+                
+                // 当批处理达到阈值时，批量添加到队列
+                if (_batchCounter >= _batchSize)
+                {                    FlushBatch();
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 刷新批处理队列
+        /// </summary>
+        private void FlushBatch()
+        {            lock (_batchLock)
+            {                if (_logBatch.Count == 0)
+                    return;
+                
+                // 批量添加到队列
+                foreach (var entry in _logBatch)
+                {                    try
+                    {                        _logQueue.Add(entry);
+                    }
+                    catch (Exception)
+                    {                        // 忽略添加失败的情况
+                    }
+                }
+                
+                // 清空批处理队列
+                _logBatch.Clear();
+                _batchCounter = 0;
+            }
+        }
+        
+        /// <summary>
+        /// 启用文件日志输出
+        /// </summary>
+        public void EnableFileLogging(string logDirectory, int maxFileSizeInMB = 10, int maxFileCount = 5)
+        {            try
+            {                lock (_lock)
+                {
+                    // 先禁用现有的文件日志
+                    DisableFileLogging();
+                    
+                    // 设置文件日志参数
+                    _logDirectory = logDirectory;
+                    _maxFileSizeInMB = maxFileSizeInMB;
+                    _maxFileCount = maxFileCount;
+                    
+                    // 确保日志目录存在
+                    if (!Directory.Exists(logDirectory))
+                    {                        Directory.CreateDirectory(logDirectory);
+                    }
+                    
+                    // 创建新的日志文件
+                    CreateNewLogFile();
+                    
+                    // 启用文件日志
+                    _isFileLoggingEnabled = true;
+                    
+                    // 记录日志
+                    LogInfo("DebugService", $"文件日志已启用，目录: {logDirectory}");
+                }
+            }
+            catch (Exception ex)
+            {                Console.WriteLine($"启用文件日志失败: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 禁用文件日志输出
+        /// </summary>
+        public void DisableFileLogging()
+        {            lock (_lock)
+            {                _isFileLoggingEnabled = false;
+                
+                // 刷新批处理队列中的所有日志
+                FlushBatch();
+                
+                // 关闭并释放日志写入器
+                if (_logWriter != null)
+                {                    try
+                    {                        _logWriter.Flush();
+                        _logWriter.Close();
+                    }
+                    catch (Exception)
+                    {                        // 忽略关闭时的异常
+                    }
+                    finally
+                    {                        _logWriter = null;
+                    }
+                }
+                
+                _currentLogFilePath = string.Empty;
+                _currentFileSize = 0;
+            }
+        }
+        
+        /// <summary>
+        /// 创建新的日志文件
+        /// </summary>
+        private void CreateNewLogFile()
+        {            // 生成文件名：AI_Chat_Assistant_yyyyMMdd_HHmmss.log
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string fileName = $"AI_Chat_Assistant_{timestamp}.log";
+            _currentLogFilePath = Path.Combine(_logDirectory, fileName);
+            
+            // 创建日志写入器
+            _logWriter = new StreamWriter(_currentLogFilePath, true, Encoding.UTF8);
+            _currentFileSize = 0;
+            
+            // 写入日志文件头部
+            _logWriter.WriteLine("==============================================");
+            _logWriter.WriteLine($"AI 对话助手日志文件");
+            _logWriter.WriteLine($"创建时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            _logWriter.WriteLine("==============================================");
+            _logWriter.Flush();
+            
+            // 清理旧日志文件
+            CleanupOldLogFiles();
+        }
+        
+        /// <summary>
+        /// 清理旧的日志文件
+        /// </summary>
+        private void CleanupOldLogFiles()
+        {            try
+            {                // 获取所有日志文件并按创建时间排序
+                var logFiles = Directory.GetFiles(_logDirectory, "AI_Chat_Assistant_*.log")
+                    .Select(f => new { Path = f, CreationTime = File.GetCreationTime(f) })
+                    .OrderByDescending(f => f.CreationTime)
+                    .ToList();
+                
+                // 删除超出数量限制的旧文件
+                for (int i = _maxFileCount; i < logFiles.Count; i++)
+                {                    try
+                    {                        File.Delete(logFiles[i].Path);
+                    }
+                    catch (Exception)
+                    {                        // 忽略删除失败的文件
+                    }
+                }
+            }
+            catch (Exception)
+            {                // 忽略清理过程中的异常
+            }
+        }
+        
+        /// <summary>
+        /// 日志写入循环线程方法
+        /// </summary>
+        private void WriteLogsToFileLoop()
+        {            try
+            {                foreach (var logEntry in _logQueue.GetConsumingEnumerable())
+                {                    if (!_isFileLoggingEnabled || _logWriter == null)
+                        continue;
+                    
+                    lock (_lock)
+                    {                        try
+                        {                            // 检查文件大小是否需要滚动
+                            if (_currentFileSize >= _maxFileSizeInMB * 1024 * 1024)
+                            {
+                                CreateNewLogFile();
+                            }
+                            
+                            // 写入日志条目
+                            _logWriter.WriteLine(logEntry);
+                            _logWriter.WriteLine(); // 空行分隔
+                            _logWriter.Flush();
+                            
+                            // 更新文件大小估计
+                            _currentFileSize += logEntry.Length * 2; // 粗略估计UTF-8编码后的大小
+                        }
+                        catch (Exception)
+                        {                            // 忽略写入失败的异常
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {                // 忽略线程异常
+            }
+        }
+        
+        /// <summary>
+        /// 获取格式化的日志字符串
+        /// </summary>
+        /// <param name="log">日志对象</param>
+        /// <returns>格式化后的日志字符串</returns>
+        private string GetFormattedLog(DebugLog log)
+        {            switch (_outputFormat)
+            {                case LogOutputFormat.Detailed:
+                    // 详细格式，包含所有信息
+                    StringBuilder detailed = new StringBuilder();
+                    detailed.AppendLine($"[{log.Timestamp:yyyy-MM-dd HH:mm:ss.fff}] [{log.Level,-7}] [{log.Source}] {log.Message}");
+                    if (log.EventId > 0)
+                    {                        detailed.AppendLine($"EventId: {log.EventId}");
+                    }
+                    if (log.Properties != null && log.Properties.Count > 0)
+                    {
+                        detailed.AppendLine("Properties:");
+                        foreach (var prop in log.Properties)
+                        {                            detailed.AppendLine($"  - {prop.Key}: {prop.Value}");
+                        }
+                    }
+                    if (!string.IsNullOrEmpty(log.RequestParams))
+                    {
+                        detailed.AppendLine("Request:");
+                        detailed.AppendLine(IndentString + log.RequestParams);
+                    }
+                    if (!string.IsNullOrEmpty(log.ResponseParams))
+                    {
+                        detailed.AppendLine("Response:");
+                        detailed.AppendLine(IndentString + log.ResponseParams);
+                    }
+                    if (log.Exception != null)
+                    {
+                        detailed.AppendLine("Exception:");
+                        detailed.AppendLine(IndentString + log.Exception.ToString());
+                    }
+                    return detailed.ToString();
+                    
+                case LogOutputFormat.Compact:
+                    // 简洁格式，只包含基本信息
+                    return $"[{log.Timestamp:HH:mm:ss}] [{log.Level}] {log.Message}";
+                    
+                case LogOutputFormat.Default:
+                default:
+                    // 默认格式
+                    return log.ToString();
             }
         }
 
@@ -219,21 +595,15 @@ namespace AIChatAssistant.Services
         /// 确保日志数量不超过最大值
         /// </summary>
         private void EnsureMaxEntries()
-        {
-            if (_logs.Count <= _maxLogEntries)
+        {            if (_logs.Count <= _maxLogEntries)
                 return;
                 
             // 一次性移除多余的日志，减少UI更新次数
             int removeCount = _logs.Count - _maxLogEntries;
             
-            // 创建临时列表用于高效移除
-            var logsToKeep = _logs.Take(_maxLogEntries).ToList();
-            
-            // 清空并重新添加，减少UI刷新次数
-            _logs.Clear();
-            foreach (var log in logsToKeep)
-            {
-                _logs.Add(log);
+            // 优化：从末尾开始批量移除，避免每次移除都触发UI更新
+            for (int i = 0; i < removeCount; i++)
+            {                _logs.RemoveAt(_logs.Count - 1);
             }
         }
         
@@ -311,18 +681,18 @@ namespace AIChatAssistant.Services
         /// <param name="keyword">搜索关键词</param>
         /// <returns>匹配的日志列表</returns>
         public List<DebugLog> SearchLogs(string keyword)
-        {
-            if (string.IsNullOrEmpty(keyword))
+        {            if (string.IsNullOrEmpty(keyword))
                 return _logs.ToList();
                 
             lock (_lock)
-            {
-                return _logs.Where(log => 
+            {                return _logs.Where(log => 
                     log.Message.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
                     log.Source.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
                     (log.Exception?.ToString().Contains(keyword, StringComparison.OrdinalIgnoreCase) ?? false)
                 ).ToList();
             }
         }
+        
+
     }
 }

@@ -27,6 +27,13 @@ namespace AIChatAssistant.Services
         void LogInfo(string source, string message);
 
         /// <summary>
+        /// 记录跟踪日志
+        /// </summary>
+        /// <param name="source">来源</param>
+        /// <param name="message">消息</param>
+        void LogTrace(string source, string message);
+        
+        /// <summary>
         /// 记录调试日志
         /// </summary>
         /// <param name="source">来源</param>
@@ -54,6 +61,34 @@ namespace AIChatAssistant.Services
         /// <param name="message">消息</param>
         /// <param name="exception">异常</param>
         void LogException(string source, string message, System.Exception exception);
+        
+        /// <summary>
+        /// 记录致命错误日志
+        /// </summary>
+        /// <param name="source">来源</param>
+        /// <param name="message">消息</param>
+        void LogFatal(string source, string message);
+        
+        /// <summary>
+        /// 记录致命错误异常日志
+        /// </summary>
+        /// <param name="source">来源</param>
+        /// <param name="message">消息</param>
+        /// <param name="exception">异常</param>
+        void LogFatalException(string source, string message, System.Exception exception);
+        
+        /// <summary>
+        /// 启用文件日志输出
+        /// </summary>
+        /// <param name="logDirectory">日志目录</param>
+        /// <param name="maxFileSizeInMB">最大文件大小（MB）</param>
+        /// <param name="maxFileCount">最大文件数量</param>
+        void EnableFileLogging(string logDirectory, int maxFileSizeInMB = 10, int maxFileCount = 5);
+        
+        /// <summary>
+        /// 禁用文件日志输出
+        /// </summary>
+        void DisableFileLogging();
 
         /// <summary>
         /// 清空所有日志
@@ -71,5 +106,17 @@ namespace AIChatAssistant.Services
         /// 日志添加事件
         /// </summary>
         event System.EventHandler<DebugLog> LogAdded;
+        
+        /// <summary>
+        /// 应用日志配置
+        /// </summary>
+        /// <param name="config">日志配置对象</param>
+        void ApplyConfig(LogConfig config);
+        
+        /// <summary>
+        /// 获取当前日志配置
+        /// </summary>
+        /// <returns>当前日志配置对象</returns>
+        LogConfig GetCurrentConfig();
     }
 }
