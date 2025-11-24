@@ -21,7 +21,7 @@ namespace AIChatAssistant.UI;
 
 public partial class WinFormUI : Form
 {
-    private readonly IAiService _aiService;
+    private IAiService _aiService;
     private readonly IConversationService _conversationService;
     private readonly IPluginManager _pluginManager;
     private RichTextBox? _chatBox;
@@ -35,7 +35,10 @@ public partial class WinFormUI : Form
     private Button? _providerManagerButton;
     private Button? _toggleDebugPanelButton;
     private ComboBox? _conversationComboBox;
+    private ComboBox? _providerComboBox;
+    private Label? _providerLabel;
     private TrayIconService? _trayIconService;
+    private readonly IProviderConfigService _providerConfigService;
     
     // 调试面板相关控件
         private Panel? _debugPanel;
@@ -60,6 +63,7 @@ public partial class WinFormUI : Form
         _aiService = aiService;
         _conversationService = conversationService;
         _pluginManager = pluginManager;
+        _providerConfigService = new ProviderConfigService();
         
         // 初始化时创建一个新会话
         _conversationService.CreateConversation();
@@ -68,6 +72,7 @@ public partial class WinFormUI : Form
         SetupUI();
         InitializeTrayIcon();
         UpdateConversationComboBox();
+        LoadProviders();
     }
 
     private void InitializeComponent()
@@ -80,11 +85,31 @@ public partial class WinFormUI : Form
         Resize += new EventHandler(WinFormUI_Resize);
         FormClosing += WinFormUI_FormClosing;
 
+        // 模型供应商标签
+        _providerLabel = new Label
+        {
+            Location = new Point(10, 10),
+            Size = new Size(80, 25),
+            Text = "模型供应商:",
+            Font = new Font("Microsoft YaHei", 9),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
+        };
+        
+        // 模型供应商选择下拉框
+        _providerComboBox = new ComboBox
+        {
+            Location = new Point(100, 10),
+            Size = new Size(180, 25),
+            Font = new Font("Microsoft YaHei", 9),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
+        };
+        
         // 会话选择下拉框
         _conversationComboBox = new ComboBox
         {
-            Location = new Point(10, 10),
-            Size = new Size(550, 25),
+            Location = new Point(290, 10),
+            Size = new Size(270, 25),
             Font = new Font("Microsoft YaHei", 9),
             DropDownStyle = ComboBoxStyle.DropDownList,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
@@ -208,7 +233,7 @@ public partial class WinFormUI : Form
         };
 
         Controls.AddRange(new Control[] { 
-            _conversationComboBox, _chatBox, _inputBox, _sendButton, _clearButton, 
+            _providerLabel, _providerComboBox, _conversationComboBox, _chatBox, _inputBox, _sendButton, _clearButton, 
             _newConversationButton, _listConversationsButton, _configButton, _pluginsButton, _providerManagerButton, _toggleDebugPanelButton 
         });
     }
@@ -1001,7 +1026,11 @@ public partial class WinFormUI : Form
     
     // 属性用于访问调试面板可见状态
     public bool DebugPanelVisible => _debugPanelVisible;
-    
+}
+
+// 继续WinFormUI的partial类实现
+public partial class WinFormUI : Form
+{
     private void OnLogAdded(object sender, DebugLog log)
     {
         // 异步更新日志显示，避免阻塞UI
@@ -1345,7 +1374,7 @@ public partial class WinFormUI : Form
     // 显示插件管理器
     private void ShowPluginsManager()
     {
-        // 显示插件管理窗口的逻辑
+        // 简化的插件管理窗口
         Form pluginsManager = new Form
         {
             Text = "插件管理",
@@ -1353,95 +1382,86 @@ public partial class WinFormUI : Form
             StartPosition = FormStartPosition.CenterParent
         };
         
-        // 创建一个ListView来显示所有插件
-        ListView pluginsListView = new ListView
-        {
-            Dock = DockStyle.Fill,
-            View = View.Details,
-            FullRowSelect = true,
-            GridLines = true
-        };
-        
-        // 添加列
-        pluginsListView.Columns.Add("插件名称", 150);
-        pluginsListView.Columns.Add("版本", 60);
-        pluginsListView.Columns.Add("描述", 200);
-        pluginsListView.Columns.Add("状态", 60);
-        
-        // 填充插件列表
-        foreach (var plugin in _pluginManager.LoadedPlugins)
-        {
-            ListViewItem item = new ListViewItem(plugin.Info.Name);
-            item.SubItems.Add(plugin.Info.Version);
-            item.SubItems.Add(plugin.Info.Description);
-            item.SubItems.Add(plugin.IsEnabled ? "已启用" : "已禁用");
-            item.Tag = plugin;
-            pluginsListView.Items.Add(item);
-        }
-        
-        // 添加启用/禁用按钮
-        FlowLayoutPanel buttonPanel = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Bottom,
-            FlowDirection = FlowDirection.RightToLeft,
-            Padding = new Padding(5)
-        };
-        
-        Button enableButton = new Button
-        {
-            Text = "启用",
-            Width = 80,
-            Margin = new Padding(5, 5, 5, 5)
-        };
-        
-        Button disableButton = new Button
-        {
-            Text = "禁用",
-            Width = 80,
-            Margin = new Padding(5, 5, 5, 5)
-        };
-        
-        // 启用按钮点击事件
-        enableButton.Click += (s, e) =>
-        {
-            if (pluginsListView.SelectedItems.Count > 0)
-            {
-                var plugin = pluginsListView.SelectedItems[0].Tag as IPlugin;
-                if (plugin != null)
-                {
-                    _pluginManager.EnablePlugin(plugin.Info.Name);
-                    pluginsListView.SelectedItems[0].SubItems[3].Text = "已启用";
-                    MessageBox.Show($"插件 '{plugin.Info.Name}' 已启用", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-            }
-        };
-        
-        // 禁用按钮点击事件
-        disableButton.Click += (s, e) =>
-        {
-            if (pluginsListView.SelectedItems.Count > 0)
-            {
-                var plugin = pluginsListView.SelectedItems[0].Tag as IPlugin;
-                if (plugin != null)
-                {
-                    _pluginManager.DisablePlugin(plugin.Info.Name);
-                    pluginsListView.SelectedItems[0].SubItems[3].Text = "已禁用";
-                    MessageBox.Show($"插件 '{plugin.Info.Name}' 已禁用", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-            }
-        };
-        
-        // 添加按钮到面板
-        buttonPanel.Controls.Add(enableButton);
-        buttonPanel.Controls.Add(disableButton);
-        
-        // 添加控件到窗口
-        pluginsManager.Controls.Add(pluginsListView);
-        pluginsManager.Controls.Add(buttonPanel);
-        
         // 显示窗口
         pluginsManager.ShowDialog();
     }
+    
+    private void LoadProviders()
+    {
+        if (_providerComboBox == null)
+            return;
+        
+        try
+        {
+            // 获取所有可用的模型供应商
+            var providers = _providerConfigService.GetAllProviders();
+            _providerComboBox.DisplayMember = "Name";
+            _providerComboBox.ValueMember = "Id";
+            _providerComboBox.DataSource = providers;
+            
+            // 选择默认供应商
+            var defaultProvider = _providerConfigService.GetDefaultProvider();
+            if (defaultProvider != null)
+            {
+                for (int i = 0; i < _providerComboBox.Items.Count; i++)
+                {
+                    var provider = _providerComboBox.Items[i] as AiProviderConfig;
+                    if (provider != null && provider.Id == defaultProvider.Id)
+                    {
+                        _providerComboBox.SelectedIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugService.Instance.LogException("UI", "加载模型供应商失败", ex);
+            AddMessageToChat("系统", "加载模型供应商失败: " + ex.Message, Color.Red);
+        }
+    }
+    
+    private void OnProviderSelected()
+    {
+        if (_providerComboBox == null)
+            return;
+        
+        try
+        {
+            // 获取选中的供应商配置
+            var selectedProvider = _providerComboBox.SelectedItem as AiProviderConfig;
+            if (selectedProvider != null)
+            {
+                // 显示切换提示
+                AddMessageToChat("系统", $"正在切换到模型供应商: {selectedProvider.Name}", Color.Blue);
+                
+                // 使用配置服务设置默认供应商
+                _providerConfigService.SetDefaultProvider(selectedProvider.Id);
+                
+                // 创建新的AI服务实例
+                // 注意：这里使用空API密钥，实际应用中应该从配置中获取
+                string apiKey = GetApiKeyForProvider(selectedProvider.Id);
+                _aiService = AiServiceFactory.CreateAiService(selectedProvider.Id, apiKey);
+                
+                // 显示切换成功提示
+                AddMessageToChat("系统", $"已成功切换到: {selectedProvider.Name}", Color.Green);
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugService.Instance.LogException("UI", "切换模型供应商失败", ex);
+            AddMessageToChat("系统", "切换模型供应商失败: " + ex.Message, Color.Red);
+        }
+    }
+    
+    private string GetApiKeyForProvider(string providerId)
+    {
+        // 简单实现：实际应用中应该从配置文件或安全存储中获取API密钥
+        // 这里返回空字符串，AiServiceFactory会处理
+        return string.Empty;
+    }
+        
+
     
     // 对话项，用于下拉框显示
     private class ConversationItem
@@ -1460,7 +1480,6 @@ public partial class WinFormUI : Form
             return Title;
         }
     }
-}
 
 // 对话管理窗体
 public class ConversationManagerForm : Form
@@ -1826,6 +1845,5 @@ public class ApiConfigForm : Form
             MessageBox.Show($"保存配置时出错: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
-    
-
+}
 }

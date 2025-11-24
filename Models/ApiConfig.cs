@@ -23,6 +23,9 @@ public class ApiConfig
     public string? AzureDeploymentId { get; set; } = null;
     public string? ApiVersion { get; set; } = "2023-05-15";
     
+    // 保持所选供应商的ID
+    public string? SelectedProviderId { get; set; } = null;
+    
     // 从AiProviderConfig创建ApiConfig的构造函数
     public ApiConfig(AiProviderConfig providerConfig)
     {
