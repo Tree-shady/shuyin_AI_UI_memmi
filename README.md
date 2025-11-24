@@ -2,6 +2,11 @@
 
 一个功能完善的AI聊天助手应用，支持多会话管理，提供命令行和图形界面两种交互方式。
 
+暂不支持插件扩展与流式输出模式，仅支持同步交互模式。
+用户发出消息后，应用会将消息发送给AI供应商的API，等待AI模型的响应。响应返回后，应用会将响应内容显示在用户界面上。故而会有延迟，用户需要等待一段时间才能看到AI的回复。后续用户可以继续发送消息，应用会将所有消息发送给AI供应商的API，等待AI模型的响应。响应返回后，应用会将响应内容显示在用户界面上。
+
+等待后续优化，以适配支持插件扩展与流式输出模式
+
 ## 功能特性
 
 - **多会话管理**：创建、查看、切换和删除不同的对话会话，支持跨会话数据持久化
@@ -294,25 +299,6 @@ dotnet run --gui
 
 MIT License
 
-Copyright (c) 2025 Tree-shady
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 ## 常见问题解答
 
