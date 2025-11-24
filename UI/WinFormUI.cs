@@ -335,36 +335,52 @@ public partial class WinFormUI : Form
 
         try
         {
-            // 使用流式API发送消息
-            await _aiService.StreamMessageAsync(message, activeConversation.Messages, (chunk) =>
+            // 使用非流式API发送消息
+            string aiResponse = await _aiService.SendMessageAsync(message, activeConversation.Messages, activeConversation.Id);
+            
+            // 在UI线程上更新UI
+            if (InvokeRequired)
             {
-                // 确保在UI线程上更新UI
-                if (InvokeRequired)
+                Invoke((Action)(() =>
                 {
-                    Invoke((Action<string>)((newChunk) =>
+                    if (_chatBox != null)
                     {
-                        UpdateStreamingResponse(newChunk, fullResponse, ref aiMessageStarted, ref aiMessageStartPos);
-                    }), chunk);
-                }
-                else
-                {
-                    UpdateStreamingResponse(chunk, fullResponse, ref aiMessageStarted, ref aiMessageStartPos);
-                }
-            }, activeConversation.Id);
-
-            // 确保AI消息有结尾的换行
-            if (_chatBox != null && aiMessageStarted)
+                        _chatBox.SuspendLayout();
+                        try
+                        {
+                            _chatBox.SelectionStart = _chatBox.TextLength;
+                            _chatBox.SelectionColor = Color.DarkBlue;
+                            _chatBox.AppendText("AI: " + aiResponse + "\n\n");
+                            _chatBox.ScrollToCaret();
+                            _chatBox.SelectionColor = _chatBox.ForeColor;
+                        }
+                        finally
+                        {
+                            _chatBox.ResumeLayout(true);
+                        }
+                    }
+                    fullResponse.Append(aiResponse);
+                }));
+            }
+            else
             {
-                _chatBox.SuspendLayout();
-                try
+                if (_chatBox != null)
                 {
-                    _chatBox.AppendText("\n\n");
-                    _chatBox.ScrollToCaret();
+                    _chatBox.SuspendLayout();
+                    try
+                    {
+                        _chatBox.SelectionStart = _chatBox.TextLength;
+                        _chatBox.SelectionColor = Color.DarkBlue;
+                        _chatBox.AppendText("AI: " + aiResponse + "\n\n");
+                        _chatBox.ScrollToCaret();
+                        _chatBox.SelectionColor = _chatBox.ForeColor;
+                    }
+                    finally
+                    {
+                        _chatBox.ResumeLayout(true);
+                    }
                 }
-                finally
-                {
-                    _chatBox.ResumeLayout(true);
-                }
+                fullResponse.Append(aiResponse);
             }
 
             // 保存完整的AI回复到对话历史

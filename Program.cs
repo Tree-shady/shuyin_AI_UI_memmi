@@ -4,7 +4,7 @@ using AIChatAssistant.Models;
 using AIChatAssistant.Plugins;
 using AIChatAssistant.Services;
 using AIChatAssistant.UI;
-using AIChatAssistant.Tests;
+
 using System.Windows.Forms;
 
 namespace AIChatAssistant;
@@ -16,14 +16,7 @@ class Program
     
     [STAThread]
     static void Main(string[] args)
-    {        // 检查是否需要运行流式输出测试
-        if (args.Length > 0 && args[0] == "--test-streaming")
-        {
-            StreamingOutputTest.TestStreamingOutput().Wait();
-            Console.WriteLine("\n按任意键继续...");
-            Console.ReadKey();
-            return;
-        }
+    {
         // 加载配置
         var config = AppConfig.LoadConfig();
 
