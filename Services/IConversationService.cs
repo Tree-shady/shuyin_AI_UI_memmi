@@ -1,10 +1,11 @@
 // Services/IConversationService.cs
 using AIChatAssistant.Models;
 using System.Collections.Generic;
+using System; // 添加IDisposable需要的命名空间
 
 namespace AIChatAssistant.Services;
 
-public interface IConversationService
+public interface IConversationService : IDisposable
 {
     // 创建新会话
     Conversation CreateConversation();
@@ -32,4 +33,9 @@ public interface IConversationService
     
     // 更新会话标题
     void UpdateConversationTitle(string conversationId, string newTitle);
+    
+    /// <summary>
+    /// 立即保存所有对话
+    /// </summary>
+    void SaveAllConversations();
 }
