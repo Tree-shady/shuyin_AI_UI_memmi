@@ -1,7 +1,9 @@
 // Services/GeminiService.cs
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using AIChatAssistant.Models;
 using AIChatAssistant.Plugins;
 
@@ -122,26 +124,172 @@ public class GeminiService : IAiService
             {
                 string result = textElement.GetString() ?? "没有收到回复";
                 DebugService.Instance.LogInfo("GeminiService", "成功获取API响应内容");
-                return result;
-            }
-            else
-            {
-                DebugService.Instance.LogWarning("GeminiService", "API响应格式不符合预期");
-                return $"错误: 收到的Gemini API响应格式不符合预期。响应内容: {responseContent}";
-            }
+            return result;
         }
-        catch (Exception ex)
+        else
         {
-            DebugService.Instance.LogException("GeminiService", "发送消息失败", ex);
-            return $"错误: {ex.Message}";
+            DebugService.Instance.LogWarning("GeminiService", "API响应格式不符合预期");
+            return $"错误: 收到的Gemini API响应格式不符合预期。响应内容: {responseContent}";
         }
     }
-
-    public void UpdateConfig(ApiConfig config)
+    catch (Exception ex)
     {
-        DebugService.Instance.LogInfo("GeminiService", "更新API配置");
-        _config = config;
-        _httpClient.DefaultRequestHeaders.Remove("x-goog-api-key");
-        _httpClient.DefaultRequestHeaders.Add("x-goog-api-key", _config.ApiKey);
+        DebugService.Instance.LogException("GeminiService", "发送消息失败", ex);
+        return $"错误: {ex.Message}";
     }
+}
+
+public void UpdateConfig(ApiConfig config)
+{
+    DebugService.Instance.LogInfo("GeminiService", "更新API配置");
+    _config = config;
+    _httpClient.DefaultRequestHeaders.Remove("x-goog-api-key");
+    _httpClient.DefaultRequestHeaders.Add("x-goog-api-key", _config.ApiKey);
+}
+
+public async Task StreamMessageAsync(string message, List<ChatMessage> conversationHistory, Action<string> onContentReceived, string? conversationId = null)
+{
+    DebugService.Instance.LogDebug("GeminiService", $"开始流式发送消息，会话ID: {conversationId ?? "default"}");
+    try
+    {
+        // 首先尝试通过插件处理消息
+        if (_pluginManager != null)
+        {
+            DebugService.Instance.LogDebug("GeminiService", "尝试通过插件处理消息");
+            var pluginResult = await _pluginManager.ProcessMessageAsync(message, conversationId ?? "default");
+            if (pluginResult != null && pluginResult.IsHandled)
+            {
+                DebugService.Instance.LogInfo("GeminiService", "消息由插件处理");
+                onContentReceived(pluginResult.IsSuccess ? pluginResult.Message : pluginResult.ErrorMessage);
+                return;
+            }
+        }
+        
+        DebugService.Instance.LogDebug("GeminiService", "准备流式发送消息到Gemini API");
+        // 构建Gemini格式的消息列表
+        var geminiMessages = new List<object>();
+        
+        foreach (var msg in conversationHistory)
+        {
+            geminiMessages.Add(new
+            {
+                role = msg.Role switch
+                {
+                    "assistant" => "model",
+                    _ => "user"
+                },
+                parts = new[] {
+                    new { text = msg.Content }
+                }
+            });
+        }
+
+        // 添加当前消息
+        geminiMessages.Add(new
+        {
+            role = "user",
+            parts = new[] {
+                new { text = message }
+            }
+        });
+        DebugService.Instance.LogDebug("GeminiService", $"发送消息数量: {geminiMessages.Count}");
+
+        // Gemini特定的请求体格式，添加stream参数
+        var requestBody = new
+        {
+            contents = geminiMessages,
+            generationConfig = new
+            {
+                maxOutputTokens = _config.MaxTokens,
+                temperature = _config.Temperature
+            },
+            stream = true // 启用流式响应
+        };
+        
+        DebugService.Instance.LogDebug("GeminiService", $"参数: MaxTokens={_config.MaxTokens}, Temperature={_config.Temperature}");
+
+        var json = JsonSerializer.Serialize(requestBody);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        // Gemini API端点，使用streamGenerateContent替代generateContent
+        string modelName = string.IsNullOrEmpty(_config.Model) ? "gemini-1.5-flash" : _config.Model;
+        string endpoint = string.IsNullOrEmpty(_config.BaseUrl) 
+            ? $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:streamGenerateContent" 
+            : $"{_config.BaseUrl}/{modelName}:streamGenerateContent";
+        
+        DebugService.Instance.LogInfo("GeminiService", $"调用Gemini API (流式)，端点: {endpoint}");
+        // 记录请求参数
+        DebugService.Instance.LogDebug("GeminiService", "发送API请求 (流式)", json, string.Empty);
+
+        // 发送请求并处理流式响应
+        using (var response = await _httpClient.PostAsync(endpoint, content, CancellationToken.None))
+        {
+            response.EnsureSuccessStatusCode();
+            DebugService.Instance.LogDebug("GeminiService", "开始接收流式响应");
+            
+            using (var stream = await response.Content.ReadAsStreamAsync())
+            using (var reader = new StreamReader(stream))
+            {
+                StringBuilder fullResponse = new StringBuilder();
+                string line;
+                
+                while (!reader.EndOfStream)
+                {
+                    line = await reader.ReadLineAsync();
+                    if (string.IsNullOrEmpty(line))
+                    {
+                        continue;
+                    }
+                    
+                    try
+                    {
+                        var responseObject = JsonSerializer.Deserialize<JsonElement>(line);
+                        
+                        // 处理Gemini流式响应格式
+                        if (responseObject.TryGetProperty("candidates", out JsonElement candidatesElement) && 
+                            candidatesElement.GetArrayLength() > 0 &&
+                            candidatesElement[0].TryGetProperty("content", out JsonElement contentElement) &&
+                            contentElement.TryGetProperty("parts", out JsonElement partsElement) &&
+                            partsElement.GetArrayLength() > 0 &&
+                            partsElement[0].TryGetProperty("text", out JsonElement textElement))
+                        {
+                            string newContent = textElement.GetString() ?? "";
+                            if (!string.IsNullOrEmpty(newContent))
+                            {
+                                // 注意：Gemini可能会返回完整内容，需要比较并只发送新增部分
+                                string currentFullText = fullResponse.ToString();
+                                if (newContent.StartsWith(currentFullText))
+                                {
+                                    string delta = newContent.Substring(currentFullText.Length);
+                                    if (!string.IsNullOrEmpty(delta))
+                                    {
+                                        fullResponse.Append(delta);
+                                        onContentReceived(delta);
+                                    }
+                                }
+                                else
+                                {
+                                    // 如果不匹配，可能是新的内容块，直接追加
+                                    fullResponse.Append(newContent);
+                                    onContentReceived(newContent);
+                                }
+                            }
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        DebugService.Instance.LogError("GeminiService", $"解析流式响应出错: {ex.Message}");
+                    }
+                }
+                
+                DebugService.Instance.LogDebug("GeminiService", "流式响应接收完成");
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        DebugService.Instance.LogError("GeminiService", $"流式请求失败: {ex.Message}");
+        onContentReceived($"错误: {ex.Message}");
+    }
+}
 }

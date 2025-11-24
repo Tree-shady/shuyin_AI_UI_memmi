@@ -291,6 +291,12 @@ public partial class WinFormUI : Form
 
     private async Task SendMessage()
     {
+        // 默认使用流式发送消息
+        await SendMessageWithStreamingAsync();
+    }
+
+    private async Task SendMessageWithStreamingAsync()
+    {
         // 添加null检查
         if (_inputBox == null || _sendButton == null)
             return;
@@ -305,29 +311,64 @@ public partial class WinFormUI : Form
 
         // 只禁用发送按钮防止重复发送，保留输入框的可用性
         _sendButton.Enabled = false;
-        // 移除对输入框的禁用，让用户可以继续输入
+        
+        // 获取当前活动会话
+        var activeConversation = _conversationService.GetActiveConversation();
+        if (activeConversation == null)
+        {
+            AddMessageToChat("系统", "错误: 当前没有活动对话", Color.Red);
+            _sendButton.Enabled = true;
+            _inputBox.Focus();
+            return;
+        }
+
+        // 添加用户消息到对话历史
+        var userMessage = new ChatMessage { Role = "user", Content = message };
+        _conversationService.AddMessageToConversation(activeConversation.Id, userMessage);
+        
+        // 用于存储AI回复的完整内容
+        StringBuilder fullResponse = new StringBuilder();
+        // 用于跟踪AI消息是否已经添加到聊天框
+        bool aiMessageStarted = false;
+        // 保存AI消息在聊天框中的起始位置
+        int aiMessageStartPos = 0;
 
         try
         {
-            // 获取当前活动会话
-            var activeConversation = _conversationService.GetActiveConversation();
-            if (activeConversation == null)
+            // 使用流式API发送消息
+            await _aiService.StreamMessageAsync(message, activeConversation.Messages, (chunk) =>
             {
-                AddMessageToChat("系统", "错误: 当前没有活动对话", Color.Red);
-                return;
+                // 确保在UI线程上更新UI
+                if (InvokeRequired)
+                {
+                    Invoke((Action<string>)((newChunk) =>
+                    {
+                        UpdateStreamingResponse(newChunk, fullResponse, ref aiMessageStarted, ref aiMessageStartPos);
+                    }), chunk);
+                }
+                else
+                {
+                    UpdateStreamingResponse(chunk, fullResponse, ref aiMessageStarted, ref aiMessageStartPos);
+                }
+            }, activeConversation.Id);
+
+            // 确保AI消息有结尾的换行
+            if (_chatBox != null && aiMessageStarted)
+            {
+                _chatBox.SuspendLayout();
+                try
+                {
+                    _chatBox.AppendText("\n\n");
+                    _chatBox.ScrollToCaret();
+                }
+                finally
+                {
+                    _chatBox.ResumeLayout(true);
+                }
             }
 
-            // 异步发送消息并获取回复
-            var response = await _aiService.SendMessageAsync(message, activeConversation.Messages, activeConversation.Id);
-
-            // 显示AI回复
-            AddMessageToChat("AI", response, Color.DarkBlue);
-
-            // 保存对话历史
-            var userMessage = new ChatMessage { Role = "user", Content = message };
-            var assistantMessage = new ChatMessage { Role = "assistant", Content = response };
-            
-            _conversationService.AddMessageToConversation(activeConversation.Id, userMessage);
+            // 保存完整的AI回复到对话历史
+            var assistantMessage = new ChatMessage { Role = "assistant", Content = fullResponse.ToString() };
             _conversationService.AddMessageToConversation(activeConversation.Id, assistantMessage);
             
             // 更新对话下拉框
@@ -341,8 +382,49 @@ public partial class WinFormUI : Form
         {
             // 恢复发送按钮的可用性
             _sendButton.Enabled = true;
-            // 不需要重新启用输入框，因为我们没有禁用它
             _inputBox.Focus(); // 确保输入框仍然保持焦点
+        }
+    }
+
+    private void UpdateStreamingResponse(string chunk, StringBuilder fullResponse, ref bool aiMessageStarted, ref int aiMessageStartPos)
+    {
+        if (_chatBox == null)
+            return;
+
+        // 暂停布局更新，减少重绘次数
+        _chatBox.SuspendLayout();
+        try
+        {
+            // 如果是AI消息的第一个块
+            if (!aiMessageStarted)
+            {
+                aiMessageStarted = true;
+                aiMessageStartPos = _chatBox.TextLength;
+                _chatBox.SelectionStart = aiMessageStartPos;
+                _chatBox.SelectionColor = Color.DarkBlue;
+                _chatBox.AppendText("AI: ");
+            }
+            else
+            {
+                // 对于后续块，确保从正确位置开始并使用正确的颜色
+                _chatBox.SelectionStart = _chatBox.TextLength;
+                _chatBox.SelectionColor = Color.DarkBlue;
+            }
+
+            // 添加新的文本块
+            _chatBox.AppendText(chunk);
+            fullResponse.Append(chunk);
+            
+            // 重置选择颜色，避免影响后续文本
+            _chatBox.SelectionStart = _chatBox.TextLength;
+            _chatBox.SelectionColor = _chatBox.ForeColor;
+        }
+        finally
+        {
+            // 恢复布局更新
+            _chatBox.ResumeLayout(true);
+            // 滚动到末尾，确保用户能看到最新内容
+            _chatBox.ScrollToCaret();
         }
     }
 
