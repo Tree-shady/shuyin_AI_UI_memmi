@@ -20,27 +20,33 @@ public class ClaudeService : IAiService
         _httpClient.DefaultRequestHeaders.Add("x-api-key", _config.ApiKey);
         _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
         _httpClient.DefaultRequestHeaders.Add("Content-Type", "application/json");
+        DebugService.Instance.LogInfo("ClaudeService", "服务初始化完成");
     }
     
     public void SetPluginManager(IPluginManager pluginManager)
     {
         _pluginManager = pluginManager;
+        DebugService.Instance.LogDebug("ClaudeService", "插件管理器已设置");
     }
 
     public async Task<string> SendMessageAsync(string message, List<ChatMessage> conversationHistory, string? conversationId = null)
     {
+        DebugService.Instance.LogDebug("ClaudeService", $"开始发送消息，会话ID: {conversationId ?? "default"}");
         try
         {
             // 首先尝试通过插件处理消息
             if (_pluginManager != null)
             {
+                DebugService.Instance.LogDebug("ClaudeService", "尝试通过插件处理消息");
                 var pluginResult = await _pluginManager.ProcessMessageAsync(message, conversationId ?? "default");
                 if (pluginResult != null && pluginResult.IsHandled)
                 {
+                    DebugService.Instance.LogInfo("ClaudeService", "消息由插件处理");
                     return pluginResult.IsSuccess ? pluginResult.Message : pluginResult.ErrorMessage;
                 }
             }
             
+            DebugService.Instance.LogDebug("ClaudeService", "准备发送消息到Claude API");
             // 构建Claude格式的消息列表
             var messages = conversationHistory.Select(msg => new
             {
@@ -54,6 +60,7 @@ public class ClaudeService : IAiService
 
             // 添加当前消息
             messages.Add(new { role = "user", content = message });
+            DebugService.Instance.LogDebug("ClaudeService", $"发送消息数量: {messages.Count}");
 
             // Claude特定的请求体格式
             var requestBody = new
@@ -63,17 +70,28 @@ public class ClaudeService : IAiService
                 max_tokens = _config.MaxTokens,
                 temperature = _config.Temperature
             };
+            
+            DebugService.Instance.LogDebug("ClaudeService", $"参数: MaxTokens={_config.MaxTokens}, Temperature={_config.Temperature}");
 
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             // Claude API端点，默认为https://api.anthropic.com/v1/messages
             string endpoint = string.IsNullOrEmpty(_config.BaseUrl) ? "https://api.anthropic.com/v1/messages" : $"{_config.BaseUrl}/messages";
+            DebugService.Instance.LogInfo("ClaudeService", $"调用Claude API，端点: {endpoint}");
+            // 记录请求参数
+            DebugService.Instance.LogDebug("ClaudeService", "发送API请求", json, string.Empty);
 
             var response = await _httpClient.PostAsync(endpoint, content);
+            DebugService.Instance.LogDebug("ClaudeService", $"API响应状态: {response.StatusCode}");
+            
+            // 获取响应内容并记录
+            var responseContent = await response.Content.ReadAsStringAsync();
+            DebugService.Instance.LogDebug("ClaudeService", "收到API响应", string.Empty, responseContent);
+            
             response.EnsureSuccessStatusCode();
 
-            var responseContent = await response.Content.ReadAsStringAsync();
+            DebugService.Instance.LogDebug("ClaudeService", "获取API响应内容成功");
             var responseObject = JsonSerializer.Deserialize<JsonElement>(responseContent);
 
             // Claude API响应格式解析
@@ -81,21 +99,26 @@ public class ClaudeService : IAiService
                 contentArray.GetArrayLength() > 0 &&
                 contentArray[0].TryGetProperty("text", out JsonElement textElement))
             {
-                return textElement.GetString() ?? "没有收到回复";
+                string result = textElement.GetString() ?? "没有收到回复";
+                DebugService.Instance.LogInfo("ClaudeService", "成功获取API响应内容");
+                return result;
             }
             else
             {
+                DebugService.Instance.LogWarning("ClaudeService", "API响应格式不符合预期");
                 return $"错误: 收到的Claude API响应格式不符合预期。响应内容: {responseContent}";
             }
         }
         catch (Exception ex)
         {
+            DebugService.Instance.LogException("ClaudeService", "发送消息失败", ex);
             return $"错误: {ex.Message}";
         }
     }
 
     public void UpdateConfig(ApiConfig config)
     {
+        DebugService.Instance.LogInfo("ClaudeService", "更新API配置");
         _config = config;
         _httpClient.DefaultRequestHeaders.Remove("x-api-key");
         _httpClient.DefaultRequestHeaders.Add("x-api-key", _config.ApiKey);

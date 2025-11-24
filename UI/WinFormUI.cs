@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using AIChatAssistant.Models;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -14,6 +15,7 @@ using AIChatAssistant.Config;
 using AIChatAssistant.Models;
 using AIChatAssistant.Plugins;
 using AIChatAssistant.Services;
+using System.Collections.ObjectModel;
 
 namespace AIChatAssistant.UI;
 
@@ -31,8 +33,27 @@ public partial class WinFormUI : Form
     private Button? _configButton;
     private Button? _pluginsButton;
     private Button? _providerManagerButton;
+    private Button? _toggleDebugPanelButton;
     private ComboBox? _conversationComboBox;
     private TrayIconService? _trayIconService;
+    
+    // 调试面板相关控件
+        private Panel? _debugPanel;
+        private DataGridView? _debugLogGrid; // 保留以避免破坏其他代码
+        private RichTextBox? _debugLogTextBox;
+        private Button? _clearDebugLogButton;
+        private Button? _exportLogButton;
+        private TextBox? _searchLogTextBox;
+        private Label? _logCountLabel;
+        private CheckBox? _infoLogCheckbox;
+        private CheckBox? _debugLogCheckbox;
+        private CheckBox? _warningLogCheckbox;
+        private CheckBox? _errorLogCheckbox;
+    
+    // 调试面板状态
+    private bool _debugPanelVisible = false;
+    private bool _isAnimating = false;
+    private const int DEBUG_PANEL_WIDTH = 400;
 
     public WinFormUI(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager)
     {
@@ -83,17 +104,17 @@ public partial class WinFormUI : Form
         // 输入框
         _inputBox = new TextBox
         {
-            Location = new Point(10, 430),
+            Location = new Point(10, 420),
             Font = new Font("Microsoft YaHei", 10),
             Multiline = true,
-            Size = new Size(600, 80),
+            Size = new Size(600, 70), // 减小高度以增加与底部按钮的间距
             Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
         };
 
         // 发送按钮
         _sendButton = new Button
         {
-            Location = new Point(620, 430),
+            Location = new Point(620, 420),
             Size = new Size(150, 35),
             Text = "发送",
             BackColor = Color.DodgerBlue,
@@ -105,7 +126,7 @@ public partial class WinFormUI : Form
         // 清空对话按钮
         _clearButton = new Button
         {
-            Location = new Point(620, 475),
+            Location = new Point(620, 465),
             Size = new Size(150, 35),
             Text = "清空对话",
             BackColor = Color.LightGray,
@@ -140,7 +161,7 @@ public partial class WinFormUI : Form
         // API配置按钮
         _configButton = new Button
         {
-            Location = new Point(620, 520),
+            Location = new Point(620, 510),
             Size = new Size(150, 35),
             Text = "API配置",
             BackColor = Color.Orange,
@@ -152,30 +173,43 @@ public partial class WinFormUI : Form
         // 插件管理按钮
         _pluginsButton = new Button
         {
-            Location = new Point(300, 520),
+            Location = new Point(150, 510),
             Size = new Size(150, 35),
             Text = "插件管理",
             BackColor = Color.Purple,
             ForeColor = Color.White,
             Font = new Font("Microsoft YaHei", 10),
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Left
         };
 
         // 供应商管理按钮
         _providerManagerButton = new Button
         {
-            Location = new Point(460, 520),
+            Location = new Point(310, 510),
             Size = new Size(150, 35),
             Text = "供应商管理",
             BackColor = Color.Teal,
             ForeColor = Color.White,
             Font = new Font("Microsoft YaHei", 10),
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Left
+        };
+        
+        // 调试面板切换按钮
+        _toggleDebugPanelButton = new Button
+        {
+            Location = new Point(470, 510),
+            Size = new Size(140, 35),
+            Text = "显示调试",
+            BackColor = Color.Indigo,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 10),
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
+            Visible = false // 隐藏调试按钮，默认不显示调试信息框
         };
 
         Controls.AddRange(new Control[] { 
             _conversationComboBox, _chatBox, _inputBox, _sendButton, _clearButton, 
-            _newConversationButton, _listConversationsButton, _configButton, _pluginsButton, _providerManagerButton 
+            _newConversationButton, _listConversationsButton, _configButton, _pluginsButton, _providerManagerButton, _toggleDebugPanelButton 
         });
     }
 
@@ -238,9 +272,21 @@ public partial class WinFormUI : Form
             _conversationComboBox.SelectedIndexChanged += (s, e) => OnConversationSelected();
         if (_pluginsButton != null)
             _pluginsButton.Click += (s, e) => ShowPluginsManager();
-
+            
+        if (_toggleDebugPanelButton != null)
+            _toggleDebugPanelButton.Click += async (s, e) => await ToggleDebugPanel();
+            
+        // 订阅日志服务事件
+        DebugService.Instance.LogAdded += OnLogAdded;
+        
         // 添加欢迎消息
         AddMessageToChat("系统", "欢迎使用AI对话助手！", Color.Blue);
+        
+        // 初始化调试面板
+        InitializeDebugPanel();
+        
+        // 记录应用启动日志
+        DebugService.Instance.LogInfo("UI", "应用启动成功");
     }
 
     private async Task SendMessage()
@@ -395,6 +441,640 @@ public partial class WinFormUI : Form
         }
     }
 
+    private void InitializeDebugPanel()
+        {
+            // 创建调试面板 - 命令行样式
+            _debugPanel = new Panel
+            {
+                Location = new Point(Width, 0),
+                Size = new Size(DEBUG_PANEL_WIDTH, Height),
+                BackColor = Color.Black,
+                BorderStyle = BorderStyle.FixedSingle,
+                Visible = false,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right | AnchorStyles.Bottom // 锚定到顶部、右侧和底部
+            };
+            
+            // 创建日志过滤选项面板 - 命令行样式
+            var filterPanel = new Panel
+            {
+                Location = new Point(10, 10),
+                Size = new Size(DEBUG_PANEL_WIDTH - 20, 70), // 增加高度以容纳所有控件
+                BackColor = Color.Black
+            };
+            
+            // 创建搜索面板 - 命令行样式
+            var searchPanel = new Panel
+            {
+                Location = new Point(10, 90), // 调整位置避免遮挡
+                Size = new Size(DEBUG_PANEL_WIDTH - 20, 40),
+                BackColor = Color.Black
+            };
+            
+            // 创建日志级别复选框 - 命令行样式
+            _infoLogCheckbox = new CheckBox
+            {
+                Location = new Point(10, 5),
+                Text = "信息",
+                Checked = true,
+                ForeColor = Color.Cyan,
+                Font = new Font("Consolas", 9),
+                BackColor = Color.Transparent
+            };
+            
+            _debugLogCheckbox = new CheckBox
+            {
+                Location = new Point(80, 5),
+                Text = "调试",
+                Checked = true,
+                ForeColor = Color.Green,
+                Font = new Font("Consolas", 9),
+                BackColor = Color.Transparent
+            };
+            
+            _warningLogCheckbox = new CheckBox
+            {
+                Location = new Point(150, 5),
+                Text = "警告",
+                Checked = true,
+                ForeColor = Color.Yellow,
+                Font = new Font("Consolas", 9),
+                BackColor = Color.Transparent
+            };
+            
+            _errorLogCheckbox = new CheckBox
+            {
+                Location = new Point(220, 5),
+                Text = "错误",
+                Checked = true,
+                ForeColor = Color.Red,
+                Font = new Font("Consolas", 9),
+                BackColor = Color.Transparent
+            };
+            
+            // 创建导出日志按钮 - 命令行样式（调整位置避免与清空按钮重叠）
+            _exportLogButton = new Button
+            {
+                Location = new Point(10, 35),
+                Size = new Size(70, 30),
+                Text = "导出",
+                BackColor = Color.DarkBlue,
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 9),
+                FlatStyle = FlatStyle.Flat
+            };
+            
+            _exportLogButton.Click += (s, e) => ExportDebugLogs();
+            
+            // 创建清空日志按钮 - 命令行样式（调整位置避免遮挡）
+            _clearDebugLogButton = new Button
+            {
+                Location = new Point(90, 35),
+                Size = new Size(70, 30),
+                Text = "清空",
+                BackColor = Color.DarkGray,
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 9),
+                FlatStyle = FlatStyle.Flat
+            };
+            
+            _clearDebugLogButton.Click += (s, e) => 
+            {
+                DebugService.Instance.ClearLogs();
+                UpdateLogDisplay();
+            };
+        
+        // 为日志级别复选框添加事件处理
+        _infoLogCheckbox.CheckedChanged += (s, e) => UpdateLogDisplay();
+        _debugLogCheckbox.CheckedChanged += (s, e) => UpdateLogDisplay();
+        _warningLogCheckbox.CheckedChanged += (s, e) => UpdateLogDisplay();
+        _errorLogCheckbox.CheckedChanged += (s, e) => UpdateLogDisplay();
+        
+        // 创建搜索标签 - 命令行样式
+        var searchLabel = new Label
+        {
+            Location = new Point(0, 10),
+            Size = new Size(30, 20),
+            Text = "搜索:",
+            AutoSize = true,
+            ForeColor = Color.White,
+            Font = new Font("Consolas", 9)
+        };
+        
+        // 创建搜索文本框 - 命令行样式
+        _searchLogTextBox = new TextBox
+        {
+            Location = new Point(40, 8),
+            Size = new Size(220, 20),
+            PlaceholderText = "输入关键词搜索日志...",
+            BackColor = Color.Black,
+            ForeColor = Color.White,
+            Font = new Font("Consolas", 9),
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        
+        _searchLogTextBox.TextChanged += (s, e) => UpdateLogDisplay();
+        
+        // 创建日志计数标签 - 命令行样式
+        _logCountLabel = new Label
+        {
+            Location = new Point(270, 10),
+            Size = new Size(100, 20),
+            Text = "日志: 0",
+            TextAlign = ContentAlignment.MiddleRight,
+            AutoSize = true,
+            ForeColor = Color.White,
+            Font = new Font("Consolas", 9)
+        };
+        
+        // 添加搜索面板控件
+        searchPanel.Controls.AddRange(new Control[] {
+            searchLabel, _searchLogTextBox, _logCountLabel
+        });
+        
+        // 添加过滤面板控件
+        filterPanel.Controls.AddRange(new Control[] {
+            _infoLogCheckbox, _debugLogCheckbox, _warningLogCheckbox, _errorLogCheckbox, _exportLogButton, _clearDebugLogButton
+        });
+        
+        // 创建日志数据网格视图 - 命令行样式
+        _debugLogGrid = new DataGridView
+        {
+            Location = new Point(10, 110),
+            Size = new Size(DEBUG_PANEL_WIDTH - 20, Height - 130),
+            ReadOnly = true,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AllowUserToOrderColumns = false,
+            AutoGenerateColumns = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            MultiSelect = false,
+            RowHeadersVisible = false,
+            // 优化渲染
+            EnableHeadersVisualStyles = false,
+            // 设置列头样式 - 命令行风格
+            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.Black,
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 9, FontStyle.Bold)
+            },
+            // 设置行高和默认样式 - 命令行字体
+            RowTemplate = {
+                Height = 25,
+                DefaultCellStyle = {
+                    Font = new Font("Consolas", 9),
+                    BackColor = Color.Black,
+                    ForeColor = Color.White
+                }
+            },
+            // 命令行背景色
+            BackgroundColor = Color.Black,
+            // 无边框风格
+            BorderStyle = BorderStyle.None,
+            // 列标题可见性
+            ColumnHeadersVisible = true,
+            // 启用列排序
+        };
+        
+        // 添加列
+        _debugLogGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Timestamp",
+            HeaderText = "时间",
+            DataPropertyName = "Timestamp",
+            Width = 100,
+            DefaultCellStyle = new DataGridViewCellStyle
+            {
+                Format = "HH:mm:ss.fff"
+            }
+        });
+        
+        _debugLogGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Level",
+            HeaderText = "级别",
+            DataPropertyName = "Level",
+            Width = 60
+        });
+        
+        _debugLogGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Source",
+            HeaderText = "来源",
+            DataPropertyName = "Source",
+            Width = 80
+        });
+        
+        _debugLogGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Message",
+            HeaderText = "消息",
+            DataPropertyName = "Message",
+            Width = 150
+        });
+        
+        // 添加请求参数列
+        _debugLogGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "RequestParams",
+            HeaderText = "请求参数",
+            DataPropertyName = "RequestParams",
+            Width = 150
+        });
+        
+        // 添加响应参数列
+        _debugLogGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "ResponseParams",
+            HeaderText = "响应参数",
+            DataPropertyName = "ResponseParams",
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
+        });
+        
+        // 设置数据源
+        _debugLogGrid.DataSource = DebugService.Instance.Logs;
+        
+        // 添加日志级别颜色格式化事件 - 命令行终端风格
+        _debugLogGrid.CellFormatting += (s, e) =>
+        {
+            // 先设置默认的黑底白字样式
+            _debugLogGrid.Rows[e.RowIndex].DefaultCellStyle.BackColor = Color.Black;
+            _debugLogGrid.Rows[e.RowIndex].DefaultCellStyle.ForeColor = Color.White;
+            
+            // 为不同级别设置不同颜色
+            if (e.ColumnIndex == _debugLogGrid.Columns["Level"].Index && e.Value != null)
+            {
+                switch (e.Value.ToString())
+                {
+                    case "Info":
+                        _debugLogGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.ForeColor = Color.Cyan;
+                        break;
+                    case "Debug":
+                        _debugLogGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.ForeColor = Color.Green;
+                        break;
+                    case "Warning":
+                        _debugLogGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.ForeColor = Color.Yellow;
+                        break;
+                    case "Error":
+                        _debugLogGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.ForeColor = Color.Red;
+                        // 错误行可以使用高亮背景
+                        _debugLogGrid.Rows[e.RowIndex].DefaultCellStyle.BackColor = Color.FromArgb(30, 0, 0);
+                        break;
+                }
+            }
+        };
+        
+        // 创建命令行风格的日志文本框（替换DataGridView）
+        _debugLogTextBox = new RichTextBox
+        {
+            Location = new Point(10, 140), // 调整位置避免与其他控件重叠
+            Size = new Size(DEBUG_PANEL_WIDTH - 20, Height - 160),
+            ReadOnly = true,
+            BackColor = Color.Black,
+            ForeColor = Color.White,
+            Font = new Font("Consolas", 10),
+            BorderStyle = BorderStyle.None,
+            Multiline = true,
+            ScrollBars = RichTextBoxScrollBars.Both,
+            WordWrap = false, // 命令行通常不自动换行
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom // 锚定到所有边缘
+        };
+        
+        // 添加调试面板控件
+        _debugPanel.Controls.Add(filterPanel);
+        _debugPanel.Controls.Add(searchPanel);
+        _debugPanel.Controls.Add(_debugLogTextBox);
+        
+        // 添加调试面板到主窗口，并确保它总是在最上层
+        Controls.Add(_debugPanel);
+        _debugPanel.BringToFront(); // 确保调试面板显示在最前面，不被其他控件遮挡
+        
+        // 初始添加一条测试日志
+        DebugService.Instance.LogInfo("UI", "调试面板初始化完成");
+        DebugService.Instance.LogDebug("UI", "应用启动，初始化调试功能");
+    }
+    
+    private async Task ToggleDebugPanel()
+    {        // 防止动画重复触发
+        if (_isAnimating || _debugPanel == null || _toggleDebugPanelButton == null || _chatBox == null)
+            return;
+            
+        _isAnimating = true;
+        // 强制保持调试面板隐藏，不允许切换显示状态
+        _debugPanelVisible = false;
+        _debugPanel.Visible = false;
+        _isAnimating = false;
+        return; // 直接返回，不执行任何动画或显示逻辑
+        
+        // 平滑动画参数
+        const int animationSpeed = 5; // 每步移动的像素数
+        const int animationDelay = 5; // 每步延迟的毫秒数
+        
+        // 保存原始锚定设置
+        AnchorStyles originalChatBoxAnchor = _chatBox.Anchor;
+        
+        // 临时移除Right锚定，避免与手动调整宽度冲突
+        _chatBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
+        
+        // 确保调试面板在动画开始时可见
+        if (_debugPanelVisible)
+        {
+            _debugPanel.Visible = true;
+            _debugPanel.BringToFront(); // 确保调试面板显示在最前面
+            _toggleDebugPanelButton.Text = "隐藏调试";
+            // 设置调试面板位置和大小 - 调整Top位置，避免覆盖顶部按钮区域
+            _debugPanel.Size = new Size(DEBUG_PANEL_WIDTH, Height - 40); // 留出顶部40像素空间给按钮
+            _debugPanel.Location = new Point(Width - DEBUG_PANEL_WIDTH, 40); // 从顶部40像素开始显示
+            
+            // 确保顶部按钮保持在最前面
+            if (_newConversationButton != null)
+                _newConversationButton.BringToFront();
+            if (_listConversationsButton != null)
+                _listConversationsButton.BringToFront();
+            if (_conversationComboBox != null)
+                _conversationComboBox.BringToFront();
+        }
+        else
+        {
+            _toggleDebugPanelButton.Text = "显示调试";
+        }
+        
+        // 定义目标宽度变量 - 确保在整个方法作用域内可见
+        int targetChatBoxWidth = 0;
+        int targetDebugPanelLeft = 0;
+        
+        try
+        {
+            // 计算目标位置和大小 - 使用固定的边距值
+            const int LEFT_MARGIN = 20; // 左侧边距
+            const int TOP_BUTTON_HEIGHT = 40; // 顶部按钮区域高度
+            
+            // 调整目标聊天框宽度 - 确保不影响顶部按钮区域
+            targetChatBoxWidth = _debugPanelVisible ? Width - DEBUG_PANEL_WIDTH - LEFT_MARGIN : Width - LEFT_MARGIN;
+            
+            // 确保调试面板大小适配
+            int targetDebugPanelHeight = _debugPanelVisible ? Height - TOP_BUTTON_HEIGHT : 0;
+            
+            int currentChatBoxWidth = _chatBox.Width;
+            int step = _debugPanelVisible ? -animationSpeed : animationSpeed;
+            targetDebugPanelLeft = _debugPanelVisible ? Width - DEBUG_PANEL_WIDTH : Width;
+            int currentDebugPanelLeft = _debugPanel.Left;
+            int panelStep = _debugPanelVisible ? -animationSpeed : animationSpeed;
+            
+            // 执行平滑动画
+            while ((_debugPanelVisible && _chatBox.Width > targetChatBoxWidth) || 
+                   (!_debugPanelVisible && _chatBox.Width < targetChatBoxWidth))
+            {
+                // 计算新宽度，确保不会超过目标值
+                int newChatBoxWidth = _chatBox.Width + step;
+                if (_debugPanelVisible && newChatBoxWidth < targetChatBoxWidth)
+                    newChatBoxWidth = targetChatBoxWidth;
+                else if (!_debugPanelVisible && newChatBoxWidth > targetChatBoxWidth)
+                    newChatBoxWidth = targetChatBoxWidth;
+                
+                // 计算调试面板新位置和大小
+                int newPanelLeft = _debugPanel.Left + panelStep;
+                if (_debugPanelVisible && newPanelLeft < targetDebugPanelLeft)
+                    newPanelLeft = targetDebugPanelLeft;
+                else if (!_debugPanelVisible && newPanelLeft > targetDebugPanelLeft)
+                    newPanelLeft = targetDebugPanelLeft;
+                
+                // 更新聊天框宽度 - 只调整宽度，不影响位置
+                _chatBox.Width = newChatBoxWidth;
+                
+                // 更新调试面板位置和大小 - 确保不覆盖顶部按钮
+                _debugPanel.Left = newPanelLeft;
+                if (_debugPanelVisible)
+                {
+                    _debugPanel.Size = new Size(DEBUG_PANEL_WIDTH, targetDebugPanelHeight);
+                    _debugPanel.Top = TOP_BUTTON_HEIGHT;
+                }
+                
+                // 延迟一小段时间以创建动画效果
+                await Task.Delay(animationDelay);
+            }
+            
+            // 确保最终状态正确
+            _chatBox.Width = targetChatBoxWidth;
+            _debugPanel.Left = targetDebugPanelLeft;
+            if (_debugPanelVisible)
+            {
+                _debugPanel.Size = new Size(DEBUG_PANEL_WIDTH, targetDebugPanelHeight);
+                _debugPanel.Top = TOP_BUTTON_HEIGHT;
+            }
+            
+            // 动画结束后，根据调试面板状态设置适当的锚定
+            if (_debugPanelVisible)
+            {
+                // 显示调试面板时，聊天框不锚定右侧
+                _chatBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
+                // 调试面板锚定右侧和顶部(从按钮下方)/底部，避免覆盖顶部按钮
+                _debugPanel.Anchor = AnchorStyles.Top | AnchorStyles.Right | AnchorStyles.Bottom;
+                // 再次确保顶部按钮保持在最前面
+                if (_newConversationButton != null)
+                    _newConversationButton.BringToFront();
+                if (_listConversationsButton != null)
+                    _listConversationsButton.BringToFront();
+                if (_conversationComboBox != null)
+                    _conversationComboBox.BringToFront();
+            }
+            else
+            {
+                // 隐藏调试面板时，恢复聊天框的所有锚定
+                _chatBox.Anchor = originalChatBoxAnchor;
+                _debugPanel.Visible = false;
+            }
+            
+            // 记录调试信息
+            DebugService.Instance.LogDebug("UI", $"调试面板状态: {(DebugPanelVisible ? "显示" : "隐藏")}");
+        }
+        catch (Exception ex)
+        {
+            DebugService.Instance.LogError("UI", $"调试面板动画出错: {ex.Message}");
+            // 出错时确保面板状态一致
+            _debugPanel.Visible = _debugPanelVisible;
+            _chatBox.Width = targetChatBoxWidth;
+        }
+        finally
+        {
+            _isAnimating = false;
+        }
+    }
+    
+    // 属性用于访问调试面板可见状态
+    public bool DebugPanelVisible => _debugPanelVisible;
+    
+    private void OnLogAdded(object sender, DebugLog log)
+    {
+        // 异步更新日志显示，避免阻塞UI
+        Task.Run(() => UpdateLogDisplay());
+    }
+    
+    private void UpdateLogDisplay()
+        {
+            if (_debugLogTextBox == null || _infoLogCheckbox == null || _debugLogCheckbox == null || 
+                _warningLogCheckbox == null || _errorLogCheckbox == null || _searchLogTextBox == null || _logCountLabel == null)
+                return;
+            
+        // 确保在UI线程上执行
+        if (_debugLogTextBox.InvokeRequired)
+        {
+            _debugLogTextBox.Invoke(new Action(UpdateLogDisplay));
+            return;
+        }
+        
+        try
+        {
+            // 获取过滤后的日志
+            var filteredLogs = DebugService.Instance.Logs.Where(log => 
+                (log.Level == LogLevel.Info && _infoLogCheckbox.Checked) ||
+                (log.Level == LogLevel.Debug && _debugLogCheckbox.Checked) ||
+                (log.Level == LogLevel.Warning && _warningLogCheckbox.Checked) ||
+                (log.Level == LogLevel.Error && _errorLogCheckbox.Checked)
+            ).ToList();
+            
+            // 应用搜索过滤
+            string searchTerm = _searchLogTextBox.Text.Trim();
+            if (!string.IsNullOrEmpty(searchTerm))
+            {
+                filteredLogs = filteredLogs.Where(log => 
+                    (log.Message != null && log.Message.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+                    (log.Source != null && log.Source.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+                    (log.Timestamp.ToString().Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+                    (log.RequestParams != null && log.RequestParams.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+                    (log.ResponseParams != null && log.ResponseParams.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                ).ToList();
+            }
+            
+            // 保存当前滚动位置
+            int currentScrollPos = _debugLogTextBox.SelectionStart;
+            bool wasAtEnd = currentScrollPos == _debugLogTextBox.Text.Length;
+            
+            // 清空文本框
+            _debugLogTextBox.Clear();
+            
+            // 按顺序添加彩色日志到文本框
+            foreach (var log in filteredLogs)
+            {
+                AddColoredLogToTextBox(log);
+            }
+            
+            // 更新日志计数
+            _logCountLabel.Text = $"日志: {filteredLogs.Count}";
+            
+            // 如果之前在末尾，则自动滚动到最新日志
+            if (wasAtEnd && _debugLogTextBox.TextLength > 0)
+            {
+                _debugLogTextBox.SelectionStart = _debugLogTextBox.TextLength;
+                _debugLogTextBox.ScrollToCaret();
+            }
+            else
+            {
+                // 否则恢复之前的滚动位置
+                _debugLogTextBox.SelectionStart = Math.Min(currentScrollPos, _debugLogTextBox.TextLength);
+            }
+        }
+        catch (Exception ex)
+        {
+            // 记录错误但不抛出异常，避免影响主程序
+            DebugService.Instance.LogError("UI", $"更新日志显示时出错: {ex.Message}");
+        }
+    }
+    
+    // 将彩色日志添加到RichTextBox的辅助方法
+    private void AddColoredLogToTextBox(DebugLog log)
+    {
+        if (log == null || _debugLogTextBox == null)
+            return;
+        
+        // 根据日志级别设置颜色
+        Color logColor = Color.White;
+        switch (log.Level)
+        {
+            case LogLevel.Info:
+                logColor = Color.Cyan;
+                break;
+            case LogLevel.Debug:
+                logColor = Color.Green;
+                break;
+            case LogLevel.Warning:
+                logColor = Color.Yellow;
+                break;
+            case LogLevel.Error:
+                logColor = Color.Red;
+                break;
+        }
+        
+        // 获取命令行格式的日志文本
+        string logText = log.ToString();
+        
+        // 保存当前选择
+        int startPos = _debugLogTextBox.TextLength;
+        
+        // 添加日志文本
+        _debugLogTextBox.AppendText(logText + Environment.NewLine);
+        
+        // 设置颜色
+        _debugLogTextBox.SelectionStart = startPos;
+        _debugLogTextBox.SelectionLength = logText.Length;
+        _debugLogTextBox.SelectionColor = logColor;
+        
+        // 重置颜色为默认值
+        _debugLogTextBox.SelectionStart = _debugLogTextBox.TextLength;
+        _debugLogTextBox.SelectionColor = Color.White;
+    }
+    
+    private void ExportDebugLogs()
+    {
+        try
+        {
+            var saveFileDialog = new SaveFileDialog
+            {
+                Title = "导出调试日志",
+                Filter = "文本文件 (*.txt)|*.txt|JSON文件 (*.json)|*.json|所有文件 (*.*)|*.*",
+                DefaultExt = "txt",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+            };
+            
+            if (saveFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                var fileExtension = Path.GetExtension(saveFileDialog.FileName).ToLowerInvariant();
+                bool isJson = fileExtension == ".json";
+                
+                // 获取当前过滤后的日志
+                var filteredLogs = DebugService.Instance.Logs.Where(log => 
+                    (log.Level == LogLevel.Info && (_infoLogCheckbox?.Checked ?? false)) ||
+                    (log.Level == LogLevel.Debug && (_debugLogCheckbox?.Checked ?? false)) ||
+                    (log.Level == LogLevel.Warning && (_warningLogCheckbox?.Checked ?? false)) ||
+                    (log.Level == LogLevel.Error && (_errorLogCheckbox?.Checked ?? false))
+                ).ToList();
+                
+                // 应用搜索过滤
+                string searchTerm = _searchLogTextBox?.Text.Trim() ?? string.Empty;
+                if (!string.IsNullOrEmpty(searchTerm))
+                {
+                    filteredLogs = filteredLogs.Where(log => 
+                        (log.Message != null && log.Message.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+                        (log.Source != null && log.Source.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                    ).ToList();
+                }
+                
+                // 直接导出所有日志，不进行过滤
+                DebugService.Instance.ExportLogs(saveFileDialog.FileName);
+                
+                // 显示导出成功提示
+                MessageBox.Show($"日志成功导出到:\n{saveFileDialog.FileName}", 
+                    "导出成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugService.Instance.LogError("WinFormUI", $"导出日志失败: {ex.Message}");
+            MessageBox.Show($"导出日志时出错:\n{ex.Message}", 
+                "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+    
     private void ShowConfigDialog()
     {
         try
@@ -428,7 +1108,8 @@ public partial class WinFormUI : Form
 
         // 确保所有控件不为null
         if (_chatBox == null || _inputBox == null || _sendButton == null || _clearButton == null || _configButton == null ||
-            _conversationComboBox == null || _newConversationButton == null || _listConversationsButton == null)
+            _conversationComboBox == null || _newConversationButton == null || _listConversationsButton == null ||
+            _pluginsButton == null || _providerManagerButton == null)
             return;
             
         // 对话选择框大小调整
@@ -446,7 +1127,7 @@ public partial class WinFormUI : Form
         _inputBox.Width = ClientSize.Width - 170; // 减去按钮宽度和边距
         _inputBox.Top = ClientSize.Height - 110; // 底部留出足够空间
         
-        // 底部按钮位置调整
+        // 右侧底部按钮位置调整（发送、清空、配置）
         _sendButton.Left = ClientSize.Width - 160; // 右侧留出10像素边距
         _sendButton.Top = ClientSize.Height - 110;
         
@@ -455,6 +1136,18 @@ public partial class WinFormUI : Form
         
         _configButton.Left = ClientSize.Width - 160;
         _configButton.Top = ClientSize.Height - 30;
+        
+        // 左侧底部按钮位置调整（插件管理、供应商管理）
+        // 保持左侧按钮的相对位置，但确保它们在窗口底部之上
+        _pluginsButton.Top = ClientSize.Height - 30;
+        
+        _providerManagerButton.Top = ClientSize.Height - 30;
+        
+        // 调试按钮位置调整（如果可见）
+        if (_toggleDebugPanelButton != null && _toggleDebugPanelButton.Visible)
+        {
+            _toggleDebugPanelButton.Top = ClientSize.Height - 30;
+        }
     }
     
     // 更新对话下拉框
