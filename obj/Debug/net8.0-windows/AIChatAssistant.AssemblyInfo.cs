@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AIChatAssistant")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ed923aaadfc89dd639f57ea4273738e9106866cb")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dcf935285de6ac984833d13b0455f3d4dc0f27cb")]
 [assembly: System.Reflection.AssemblyProductAttribute("AIChatAssistant")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AIChatAssistant")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

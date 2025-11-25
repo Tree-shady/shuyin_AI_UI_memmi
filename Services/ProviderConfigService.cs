@@ -172,24 +172,6 @@ public class ProviderConfigService : IProviderConfigService
         
         _providers.Add(providerConfig);
         SaveProviders();
-        
-        // 如果是默认供应商，同步更新config.json
-        if (providerConfig.IsDefault)
-        {
-            try
-            {
-                // 获取API配置
-                var apiConfig = providerConfig.ToApiConfig();
-                // 确保SelectedProviderId设置为当前供应商ID
-                apiConfig.SelectedProviderId = providerConfig.Id;
-                // 使用AppConfig保存配置到config.json
-                AIChatAssistant.Config.AppConfig.SaveConfig(apiConfig);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"同步更新config.json失败: {ex.Message}");
-            }
-        }
     }
     
     public void UpdateProvider(AiProviderConfig providerConfig)
@@ -208,24 +190,6 @@ public class ProviderConfigService : IProviderConfigService
             
             _providers[index] = providerConfig;
             SaveProviders();
-            
-            // 如果是默认供应商，同步更新config.json
-            if (providerConfig.IsDefault)
-            {
-                try
-                {
-                    // 获取API配置
-                    var apiConfig = providerConfig.ToApiConfig();
-                    // 确保SelectedProviderId设置为当前供应商ID
-                    apiConfig.SelectedProviderId = providerConfig.Id;
-                    // 使用AppConfig保存配置到config.json
-                    AIChatAssistant.Config.AppConfig.SaveConfig(apiConfig);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"同步更新config.json失败: {ex.Message}");
-                }
-            }
         }
     }
     
@@ -234,23 +198,12 @@ public class ProviderConfigService : IProviderConfigService
         var provider = _providers.Find(p => p.Id == id);
         if (provider != null)
         {
-            bool wasDefault = provider.IsDefault;
             _providers.Remove(provider);
             
             // 如果删除的是默认提供商，设置第一个可用的为默认
-            if (wasDefault && _providers.Count > 0)
+            if (provider.IsDefault && _providers.Count > 0)
             {
                 _providers[0].IsDefault = true;
-                
-                // 同步更新config.json中的默认供应商配置
-                try
-                {
-                    AIChatAssistant.Config.AppConfig.SaveConfig(_providers[0].ToApiConfig());
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"同步更新config.json失败: {ex.Message}");
-                }
             }
             
             SaveProviders();
@@ -264,24 +217,5 @@ public class ProviderConfigService : IProviderConfigService
             provider.IsDefault = (provider.Id == id);
         }
         SaveProviders();
-        
-        // 同步更新config.json中的默认供应商配置
-        var defaultProvider = GetDefaultProvider();
-        if (defaultProvider != null)
-        {
-            try
-            {
-                // 获取API配置
-                var apiConfig = defaultProvider.ToApiConfig();
-                // 确保SelectedProviderId设置为当前供应商ID
-                apiConfig.SelectedProviderId = id;
-                // 使用AppConfig保存配置到config.json
-                AIChatAssistant.Config.AppConfig.SaveConfig(apiConfig);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"同步更新config.json失败: {ex.Message}");
-            }
-        }
     }
 }

@@ -25,8 +25,7 @@ public class AiProviderConfig
             Model = DefaultModel,
             Provider = ProviderType,
             AzureDeploymentId = AzureDeploymentId,
-            ApiVersion = ApiVersion,
-            SelectedProviderId = this.Id // 将当前供应商的ID设置为选中的供应商ID
+            ApiVersion = ApiVersion
         };
     }
 }
