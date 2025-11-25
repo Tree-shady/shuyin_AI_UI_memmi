@@ -4,8 +4,8 @@ using AIChatAssistant.Models;
 using AIChatAssistant.Plugins;
 using AIChatAssistant.Services;
 using AIChatAssistant.UI;
-
 using System.Windows.Forms;
+using System.IO;
 
 namespace AIChatAssistant;
 
@@ -19,6 +19,11 @@ class Program
     {
         // 加载配置
         var config = AppConfig.LoadConfig();
+        
+        // 初始化调试服务配置，确保启用控制台输出
+        var logConfig = AIChatAssistant.Models.LogConfig.GetDefaultConfig();
+        logConfig.EnableConsoleOutput = true;
+        DebugService.Instance.ApplyConfig(logConfig);
 
         // 使用工厂模式创建AI服务
         IAiService aiService = AiServiceFactory.CreateAiService(config);

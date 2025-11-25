@@ -47,6 +47,11 @@ namespace AIChatAssistant.Models
         /// 日志输出格式
         /// </summary>
         public LogOutputFormat OutputFormat { get; set; } = LogOutputFormat.Console;
+        
+        /// <summary>
+        /// 是否启用控制台输出
+        /// </summary>
+        public bool EnableConsoleOutput { get; set; } = true;
 
         // 保持向后兼容性的属性
         public long MaxFileSizeBytes { get { return (long)MaxFileSizeInMB * 1024 * 1024; } set { MaxFileSizeInMB = (int)(value / (1024 * 1024)); } }
@@ -57,7 +62,10 @@ namespace AIChatAssistant.Models
         /// </summary>
         public static LogConfig GetDefaultConfig()
         {
-            return new LogConfig();
+            return new LogConfig
+            {
+                EnableConsoleOutput = true
+            };
         }
 
         /// <summary>
@@ -70,7 +78,8 @@ namespace AIChatAssistant.Models
                 MinLogLevel = LogLevel.Trace,
                 MaxLogEntries = 2000,
                 EnableFileLogging = true,
-                OutputFormat = LogOutputFormat.Json
+                OutputFormat = LogOutputFormat.Json,
+                EnableConsoleOutput = true
             };
         }
 
@@ -83,7 +92,8 @@ namespace AIChatAssistant.Models
             {
                 MinLogLevel = LogLevel.Warning,
                 MaxLogEntries = 500,
-                EnableFileLogging = false
+                EnableFileLogging = false,
+                EnableConsoleOutput = true
             };
         }
     }

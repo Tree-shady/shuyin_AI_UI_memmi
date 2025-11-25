@@ -54,6 +54,9 @@ namespace AIChatAssistant.Services
         
         // 日志输出格式
         private AIChatAssistant.Models.LogOutputFormat _outputFormat = AIChatAssistant.Models.LogOutputFormat.Default;
+        
+        // 是否启用终端输出
+        private bool _isConsoleOutputEnabled = true;
 
         /// <summary>
         /// 单例实例
@@ -143,6 +146,9 @@ namespace AIChatAssistant.Services
                 // 应用输出格式
                 _outputFormat = config.OutputFormat;
                 
+                // 应用终端输出配置
+                _isConsoleOutputEnabled = config.EnableConsoleOutput;
+                
                 // 应用文件日志配置
                 _logDirectory = config.LogDirectory;
                 _maxFileSizeInMB = config.MaxFileSizeInMB;
@@ -174,7 +180,8 @@ namespace AIChatAssistant.Services
                     MaxFileSizeInMB = _maxFileSizeInMB,
                     MaxFileCount = _maxFileCount,
                     BatchSize = _batchSize,
-                    OutputFormat = _outputFormat
+                    OutputFormat = _outputFormat,
+                    EnableConsoleOutput = _isConsoleOutputEnabled
                 };
             }
         }
@@ -303,6 +310,39 @@ namespace AIChatAssistant.Services
             
             // 获取格式化的日志
             string formattedLog = GetFormattedLog(log);
+            
+            // 如果启用了终端输出，将日志输出到控制台
+            if (_isConsoleOutputEnabled)
+            {                try
+                {                    // 根据日志级别设置控制台颜色
+                    ConsoleColor originalColor = Console.ForegroundColor;
+                    switch (log.Level)
+                    {                        case LogLevel.Error:
+                        case LogLevel.Fatal:
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            break;
+                        case LogLevel.Warning:
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            break;
+                        case LogLevel.Info:
+                            Console.ForegroundColor = ConsoleColor.White;
+                            break;
+                        case LogLevel.Debug:
+                        case LogLevel.Trace:
+                            Console.ForegroundColor = ConsoleColor.Gray;
+                            break;
+                    }
+                    
+                    // 输出格式化的日志到控制台
+                    Console.WriteLine(formattedLog);
+                    
+                    // 恢复原始控制台颜色
+                    Console.ForegroundColor = originalColor;
+                }
+                catch (Exception)
+                {                    // 忽略控制台输出异常，确保应用程序正常运行
+                }
+            }
             
             // 先将日志添加到队列中用于文件写入
             if (_isFileLoggingEnabled && _logQueue != null && !_logQueue.IsAddingCompleted)
