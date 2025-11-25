@@ -254,6 +254,50 @@ public class ConversationService : IConversationService, IDisposable
         return result;
     }
     
+    // 批量删除会话
+    public bool DeleteConversations(IEnumerable<string> conversationIds)
+    {
+        if (conversationIds == null || !conversationIds.Any())
+            return false;
+            
+        bool result = false;
+        
+        lock (_conversations)
+        {
+            var idsToDelete = new HashSet<string>(conversationIds);
+            var conversationsToDelete = _conversations.Where(c => idsToDelete.Contains(c.Id)).ToList();
+            
+            if (conversationsToDelete.Count > 0)
+            {
+                // 删除匹配的会话
+                foreach (var conversation in conversationsToDelete)
+                {
+                    _conversations.Remove(conversation);
+                }
+                
+                // 如果删除的会话中包含当前活动会话，则重新设置活动会话
+                if (idsToDelete.Contains(_activeConversationId))
+                {
+                    _activeConversationId = null;
+                    // 如果还有其他会话，设置最新的一个为活动会话
+                    if (_conversations.Any())
+                    {
+                        _activeConversationId = _conversations.OrderByDescending(c => c.LastModifiedAt).First().Id;
+                    }
+                }
+                
+                result = true;
+            }
+        }
+        
+        if (result)
+        {
+            QueueSave();
+        }
+        
+        return result;
+    }
+    
     // 获取当前活动会话
     public Conversation? GetActiveConversation()
     {

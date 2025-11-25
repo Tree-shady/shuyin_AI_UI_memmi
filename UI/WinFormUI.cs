@@ -61,13 +61,63 @@ public partial class WinFormUI : Form
         _conversationService = conversationService;
         _pluginManager = pluginManager;
         
-        // 初始化时创建一个新会话
-        _conversationService.CreateConversation();
-        
         InitializeComponent();
         SetupUI();
         InitializeTrayIcon();
+        
+        // 初始化会话：检查是否有已保存的会话
+        var activeConversation = _conversationService.GetActiveConversation();
+        var allConversations = _conversationService.GetAllConversations();
+        
+        if (allConversations.Count > 0)
+        {
+            // 有保存的会话，显示选择对话框
+            using (var selectionForm = new ConversationSelectionForm(_conversationService))
+            {
+                if (selectionForm.ShowDialog() == DialogResult.OK && !selectionForm.IsCancelled)
+                {
+                    if (selectionForm.ShouldContinueLastConversation)
+                    {
+                        // 继续上次会话
+                        if (activeConversation == null)
+                        {
+                            // 有会话但没有活动会话时，使用最新的会话
+                            var latestConversation = allConversations.OrderByDescending(c => c.LastModifiedAt).FirstOrDefault();
+                            if (latestConversation != null)
+                            {
+                                _conversationService.SetActiveConversation(latestConversation.Id);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // 新建会话
+                        _conversationService.CreateConversation();
+                    }
+                }
+                else if (selectionForm.IsCancelled)
+                {
+                    // 用户取消，继续使用上次会话
+                    if (activeConversation == null && allConversations.Count > 0)
+                    {
+                        var latestConversation = allConversations.OrderByDescending(c => c.LastModifiedAt).FirstOrDefault();
+                        if (latestConversation != null)
+                        {
+                            _conversationService.SetActiveConversation(latestConversation.Id);
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            // 没有任何会话时创建新会话
+            _conversationService.CreateConversation();
+        }
+        
+        // 更新会话下拉框并加载会话历史
         UpdateConversationComboBox();
+        LoadConversationHistory();
     }
 
     private void InitializeComponent()
@@ -1471,6 +1521,7 @@ public class ConversationManagerForm : Form
     private readonly Button _renameButton;
     private readonly Button _selectButton;
     private readonly Button _closeButton;
+    private readonly Button _selectAllButton;
     
     public ConversationManagerForm(IConversationService conversationService)
     {
@@ -1483,19 +1534,31 @@ public class ConversationManagerForm : Form
         // 初始化列表视图
         _conversationListView = new ListView
         {
-            Location = new Point(10, 10),
-            Size = new Size(560, 280),
+            Location = new Point(10, 40),
+            Size = new Size(560, 250),
             View = View.Details,
             FullRowSelect = true,
             GridLines = true,
+            CheckBoxes = true,
+            MultiSelect = true,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
         };
         
         // 添加列
-        _conversationListView.Columns.Add("ID", 100);
+        _conversationListView.Columns.Add("ID", 90);
         _conversationListView.Columns.Add("标题", 200);
         _conversationListView.Columns.Add("创建时间", 120);
         _conversationListView.Columns.Add("消息数", 60);
+        
+        // 全选按钮
+        _selectAllButton = new Button
+        {
+            Location = new Point(10, 10),
+            Size = new Size(100, 25),
+            Text = "全选",
+            BackColor = Color.LightGray,
+            Font = new Font("Microsoft YaHei", 9)
+        };
         
         // 删除按钮
         _deleteButton = new Button
@@ -1543,7 +1606,7 @@ public class ConversationManagerForm : Form
         
         // 添加控件
         Controls.AddRange(new Control[] {
-            _conversationListView, _deleteButton, _renameButton, _selectButton, _closeButton
+            _conversationListView, _deleteButton, _renameButton, _selectButton, _closeButton, _selectAllButton
         });
         
         // 添加事件处理
@@ -1551,6 +1614,8 @@ public class ConversationManagerForm : Form
         _renameButton.Click += RenameSelectedConversation;
         _selectButton.Click += SelectSelectedConversation;
         _closeButton.Click += (s, e) => Close();
+        _selectAllButton.Click += SelectAllConversations;
+        _conversationListView.ItemChecked += ConversationListView_ItemChecked;
         
         // 加载对话列表
         LoadConversations();
@@ -1579,29 +1644,87 @@ public class ConversationManagerForm : Form
             
             _conversationListView.Items.Add(item);
         }
+        
+        // 更新按钮状态
+        UpdateButtonStates();
+    }
+    
+    // 全选/取消全选对话
+    private void SelectAllConversations(object? sender, EventArgs e)
+    {
+        bool selectAll = _selectAllButton.Text == "全选";
+        
+        foreach (ListViewItem item in _conversationListView.Items)
+        {
+            item.Checked = selectAll;
+        }
+        
+        _selectAllButton.Text = selectAll ? "取消全选" : "全选";
+        UpdateButtonStates();
+    }
+    
+    // 项目选中状态变更事件
+    private void ConversationListView_ItemChecked(object? sender, ItemCheckedEventArgs e)
+    {
+        UpdateButtonStates();
+        
+        // 检查是否所有项目都已选中
+        bool allChecked = _conversationListView.Items.Count > 0 && 
+                          _conversationListView.Items.Cast<ListViewItem>().All(item => item.Checked);
+        _selectAllButton.Text = allChecked ? "取消全选" : "全选";
+    }
+    
+    // 更新按钮状态
+    private void UpdateButtonStates()
+    {
+        int checkedCount = _conversationListView.CheckedItems.Count;
+        
+        // 批量删除按钮状态
+        _deleteButton.Text = checkedCount > 1 ? $"批量删除 ({checkedCount})" : "删除对话";
+        _deleteButton.Enabled = checkedCount > 0;
+        
+        // 重命名按钮只在单选时启用
+        _renameButton.Enabled = _conversationListView.SelectedItems.Count == 1 && 
+                               _conversationListView.SelectedItems[0].Checked;
+        
+        // 选择按钮只在单选时启用
+        _selectButton.Enabled = _conversationListView.SelectedItems.Count == 1;
     }
     
     // 删除选中的对话
     private void DeleteSelectedConversation(object? sender, EventArgs e)
     {
-        if (_conversationListView.SelectedItems.Count == 0)
+        var checkedItems = _conversationListView.CheckedItems.Cast<ListViewItem>().ToList();
+        
+        if (checkedItems.Count == 0)
         {
             MessageBox.Show("请选择要删除的对话", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         
-        var selectedItem = _conversationListView.SelectedItems[0];
-        var conversationId = selectedItem.Text;
+        string confirmMessage;
+        if (checkedItems.Count == 1)
+        {
+            confirmMessage = $"确定要删除对话 '{checkedItems[0].SubItems[1].Text}' 吗？";
+        }
+        else
+        {
+            confirmMessage = $"确定要删除选中的 {checkedItems.Count} 个对话吗？";
+        }
         
         var confirmResult = MessageBox.Show(
-            $"确定要删除对话 '{selectedItem.SubItems[1].Text}' 吗？", 
+            confirmMessage, 
             "确认删除", 
             MessageBoxButtons.YesNo, 
             MessageBoxIcon.Warning);
         
         if (confirmResult == DialogResult.Yes)
         {
-            _conversationService.DeleteConversation(conversationId);
+            // 获取所有选中的对话ID
+            var conversationIds = checkedItems.Select(item => item.Text).ToList();
+            
+            // 使用批量删除方法
+            _conversationService.DeleteConversations(conversationIds);
             LoadConversations();
         }
     }
@@ -1609,9 +1732,9 @@ public class ConversationManagerForm : Form
     // 重命名选中的对话
     private void RenameSelectedConversation(object? sender, EventArgs e)
     {
-        if (_conversationListView.SelectedItems.Count == 0)
+        if (_conversationListView.SelectedItems.Count == 0 || !_conversationListView.SelectedItems[0].Checked)
         {
-            MessageBox.Show("请选择要重命名的对话", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("请选择一个要重命名的对话", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         

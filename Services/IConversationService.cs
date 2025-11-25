@@ -22,6 +22,9 @@ public interface IConversationService : IDisposable
     // 删除会话
     bool DeleteConversation(string id);
     
+    // 批量删除对话
+        bool DeleteConversations(IEnumerable<string> conversationIds);
+    
     // 获取当前活动会话
     Conversation? GetActiveConversation();
     
