@@ -1,5 +1,5 @@
 {
-  "apiKey": "sk-1130c6936f582dbbd329a3d716d50b7e",
+  "apiKey": "sk-438a3854dbc155c47198969e526e1e6f",
   "baseUrl": "https://apis.iflow.cn/v1/chat/completions",
   "model": "deepseek-v3.1",
   "maxTokens": 1000,

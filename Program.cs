@@ -35,6 +35,9 @@ class Program
         // 创建插件管理器
         IPluginManager pluginManager = new PluginManager();
         
+        // 创建智能体管理器
+        AgentManager agentManager = new AgentManager();
+        
         // 初始化插件上下文
         var pluginContext = new PluginContext
         {
@@ -72,7 +75,7 @@ class Program
         else
         {
             // 图形界面模式
-            RunGuiMode(aiService, conversationService, pluginManager);
+            RunGuiMode(aiService, conversationService, pluginManager, agentManager);
         }
     }
     
@@ -134,7 +137,7 @@ class Program
         }
     }
     
-    static void RunGuiMode(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager)
+    static void RunGuiMode(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager, AgentManager agentManager)
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -155,6 +158,6 @@ class Program
         }
         
         // 启动界面关闭后，再启动主界面应用程序
-        Application.Run(new WinFormUI(aiService, conversationService, pluginManager));
+        Application.Run(new WinFormUI(aiService, conversationService, pluginManager, agentManager));
     }
 }

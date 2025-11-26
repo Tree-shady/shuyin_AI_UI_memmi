@@ -13,6 +13,7 @@ using System.Windows.Forms;
 using System.Xml.Linq;
 using AIChatAssistant.Config;
 using AIChatAssistant.Models;
+using AIChatAssistant.Models.Agent;
 using AIChatAssistant.Plugins;
 using AIChatAssistant.Services;
 using System.Collections.ObjectModel;
@@ -24,6 +25,7 @@ public partial class WinFormUI : Form
     private readonly IAiService _aiService;
     private readonly IConversationService _conversationService;
     private readonly IPluginManager _pluginManager;
+    private readonly AgentManager _agentManager;
     private RichTextBox? _chatBox;
     private TextBox? _inputBox;
     private Button? _sendButton;
@@ -34,6 +36,7 @@ public partial class WinFormUI : Form
     private Button? _pluginsButton;
     private Button? _providerManagerButton;
     private Button? _toggleDebugPanelButton;
+    private Button? _agentButton;
     private ComboBox? _conversationComboBox;
     private TrayIconService? _trayIconService;
     
@@ -55,11 +58,12 @@ public partial class WinFormUI : Form
     private bool _isAnimating = false;
     private const int DEBUG_PANEL_WIDTH = 400;
 
-    public WinFormUI(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager)
+    public WinFormUI(IAiService aiService, IConversationService conversationService, IPluginManager pluginManager, AgentManager agentManager)
     {
         _aiService = aiService;
         _conversationService = conversationService;
         _pluginManager = pluginManager;
+        _agentManager = agentManager;
         
         InitializeComponent();
         SetupUI();
@@ -134,10 +138,10 @@ public partial class WinFormUI : Form
         _conversationComboBox = new ComboBox
         {
             Location = new Point(10, 10),
-            Size = new Size(550, 25),
+            Size = new Size(400, 25),
             Font = new Font("Microsoft YaHei", 9),
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
         };
 
         // 聊天显示区域
@@ -184,28 +188,40 @@ public partial class WinFormUI : Form
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
 
+        // 智能体功能按钮
+        _agentButton = new Button
+        {
+            Location = new Point(420, 10),
+            Size = new Size(90, 25),
+            Text = "智能体",
+            BackColor = Color.Green,
+            ForeColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
+        };
+
         // 新建对话按钮
         _newConversationButton = new Button
         {
-            Location = new Point(570, 10),
+            Location = new Point(520, 10),
             Size = new Size(90, 25),
             Text = "新建对话",
             BackColor = Color.Green,
             ForeColor = Color.White,
             Font = new Font("Microsoft YaHei", 9),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
         };
 
         // 对话列表按钮
         _listConversationsButton = new Button
         {
-            Location = new Point(670, 10),
+            Location = new Point(620, 10),
             Size = new Size(90, 25),
             Text = "管理对话",
             BackColor = Color.Purple,
             ForeColor = Color.White,
             Font = new Font("Microsoft YaHei", 9),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
         };
 
         // API配置按钮
@@ -243,7 +259,7 @@ public partial class WinFormUI : Form
             Font = new Font("Microsoft YaHei", 10),
             Anchor = AnchorStyles.Bottom | AnchorStyles.Left
         };
-        
+
         // 调试面板切换按钮
         _toggleDebugPanelButton = new Button
         {
@@ -259,7 +275,7 @@ public partial class WinFormUI : Form
 
         Controls.AddRange(new Control[] { 
             _conversationComboBox, _chatBox, _inputBox, _sendButton, _clearButton, 
-            _newConversationButton, _listConversationsButton, _configButton, _pluginsButton, _providerManagerButton, _toggleDebugPanelButton 
+            _newConversationButton, _listConversationsButton, _agentButton, _configButton, _pluginsButton, _providerManagerButton, _toggleDebugPanelButton 
         });
     }
 
@@ -322,6 +338,9 @@ public partial class WinFormUI : Form
             _conversationComboBox.SelectedIndexChanged += (s, e) => OnConversationSelected();
         if (_pluginsButton != null)
             _pluginsButton.Click += (s, e) => ShowPluginsManager();
+            
+        if (_agentButton != null)
+            _agentButton.Click += (s, e) => ShowAgentSelection();
             
         if (_toggleDebugPanelButton != null)
             _toggleDebugPanelButton.Click += async (s, e) => await ToggleDebugPanel();
@@ -1257,13 +1276,14 @@ public partial class WinFormUI : Form
         // 确保所有控件不为null
         if (_chatBox == null || _inputBox == null || _sendButton == null || _clearButton == null || _configButton == null ||
             _conversationComboBox == null || _newConversationButton == null || _listConversationsButton == null ||
-            _pluginsButton == null || _providerManagerButton == null)
+            _pluginsButton == null || _providerManagerButton == null || _agentButton == null)
             return;
             
         // 对话选择框大小调整
-        _conversationComboBox.Width = ClientSize.Width - 210; // 减去右侧按钮宽度和边距
+        _conversationComboBox.Width = ClientSize.Width - 310; // 减去三个右侧按钮宽度和边距
         
         // 右侧按钮位置调整
+        _agentButton.Left = ClientSize.Width - 290;
         _newConversationButton.Left = ClientSize.Width - 190;
         _listConversationsButton.Left = ClientSize.Width - 100;
         
@@ -1386,6 +1406,104 @@ public partial class WinFormUI : Form
     }
     
     // 显示供应商管理器
+    private void ShowAgentSelection()
+    {
+        try
+        {
+            var agents = _agentManager.GetAvailableAgents();
+            if (agents.Count == 0)
+            {
+                MessageBox.Show("暂无可用的智能体", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            
+            // 创建智能体选择对话框
+            using (var dialog = new Form())
+            {
+                dialog.Text = "选择智能体";
+                dialog.Size = new Size(400, 300);
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dialog.MaximizeBox = false;
+                dialog.MinimizeBox = false;
+                
+                // 创建列表框
+                var listBox = new ListBox
+                {
+                    Location = new Point(20, 20),
+                    Size = new Size(350, 200),
+                    DisplayMember = "Name"
+                };
+                
+                // 添加智能体到列表
+                foreach (var agent in agents)
+                {
+                    listBox.Items.Add(agent);
+                }
+                
+                // 创建确认按钮
+                var okButton = new Button
+                {
+                    Location = new Point(200, 230),
+                    Size = new Size(75, 23),
+                    Text = "确定",
+                    DialogResult = DialogResult.OK
+                };
+                
+                // 创建取消按钮
+                var cancelButton = new Button
+                {
+                    Location = new Point(285, 230),
+                    Size = new Size(75, 23),
+                    Text = "取消",
+                    DialogResult = DialogResult.Cancel
+                };
+                
+                // 添加事件处理
+                listBox.SelectedIndexChanged += (s, e) =>
+                {
+                    if (listBox.SelectedItem is AgentDefinition selectedAgent)
+                    {
+                        // 显示智能体描述
+                        var descLabel = new Label
+                        {
+                            Location = new Point(20, 230),
+                            Size = new Size(170, 23),
+                            Text = selectedAgent.Description,
+                            AutoSize = true
+                        };
+                        
+                        // 清除并重新添加描述标签
+                        dialog.Controls.RemoveByKey("descLabel");
+                        descLabel.Name = "descLabel";
+                        dialog.Controls.Add(descLabel);
+                    }
+                };
+                
+                // 添加控件
+                dialog.Controls.Add(listBox);
+                dialog.Controls.Add(okButton);
+                dialog.Controls.Add(cancelButton);
+                
+                // 设置默认按钮
+                dialog.AcceptButton = okButton;
+                dialog.CancelButton = cancelButton;
+                
+                // 显示对话框
+                if (dialog.ShowDialog() == DialogResult.OK && listBox.SelectedItem is AgentDefinition selectedAgent)
+                {
+                    // 设置选中的智能体
+                    _agentManager.SetCurrentAgent(selectedAgent.Id);
+                    AddMessageToChat("系统", $"已切换到智能体: {selectedAgent.Name}", Color.Blue);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"显示智能体选择失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+    
     private void ShowProviderManager()
     {
         using var managerForm = new ProviderManagerForm();
